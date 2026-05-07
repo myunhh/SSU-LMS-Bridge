@@ -68,7 +68,10 @@ def main() -> None:
     # 간단히 playwright 패키지만 확인
     try:
         import playwright
-        all_ok &= check("playwright 패키지", True, playwright.__version__)
+        ver = getattr(playwright, "__version__", None) or run(
+            [sys.executable, "-m", "playwright", "--version"]
+        ) or "installed"
+        all_ok &= check("playwright 패키지", True, ver)
     except ImportError:
         all_ok &= check("playwright 패키지", False, "pip install playwright 필요")
 
