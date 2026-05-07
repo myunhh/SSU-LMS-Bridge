@@ -32,11 +32,20 @@ class TestLMSAuthInterface:
         assert callable(getattr(auth, "close", None))
 
     @pytest.mark.asyncio
-    async def test_login_not_implemented(self):
-        """Day 3-4 구현 전에는 NotImplementedError 가 발생해야 한다."""
+    async def test_login_does_not_raise_not_implemented(self):
+        """Day 3-4 구현 완료 — login()은 NotImplementedError 를 던지지 않는다."""
+        # login()은 이제 실제 구현되어 있으므로 NotImplementedError 가 아닌
+        # 다른 오류(네트워크, 자격증명 등)가 발생할 수 있다.
+        # 여기서는 단순히 NotImplementedError 가 아님만 확인.
         auth = LMSAuth()
-        with pytest.raises(NotImplementedError):
+        try:
             await auth.login()
+        except NotImplementedError:
+            pytest.fail("login()이 NotImplementedError 를 던지면 안 됩니다")
+        except Exception:
+            pass  # 다른 예외(네트워크, 자격증명 등)는 허용
+        finally:
+            await auth.close()
 
     @pytest.mark.asyncio
     async def test_list_courses_not_implemented(self):
