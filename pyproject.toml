@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lms-bridge"
+version = "0.1.0"
+description = "숭실대 스마트캠퍼스 LMS → MCP Server / Notion / Obsidian Vault 통합 브릿지"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # 스크래핑
+    "playwright>=1.44.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.2.0",
+    # HTTP
+    "httpx>=0.27.0",
+    # MCP
+    "mcp>=1.0.0",
+    # Notion
+    "notion-client>=2.2.1",
+    # 설정 관리
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "python-dotenv>=1.0.0",
+    # 스케줄러
+    "apscheduler>=3.10.4",
+    # 로깅
+    "loguru>=0.7.2",
+    # CLI
+    "typer>=0.12.3",
+    "rich>=13.7.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.7",
+    "pytest-mock>=3.14.0",
+    "httpx",   # 테스트용 async client
+]
+
+[project.scripts]
+lms-bridge = "lms_bridge.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lms_bridge"]
+
+# ── pytest ──────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+log_cli = true
+log_cli_level = "INFO"
+
+# ── ruff (린터) ──────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
