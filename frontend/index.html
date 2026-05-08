@@ -4,9 +4,88 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SSU LMS Bridge</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Pretendard Variable','Pretendard','Inter','-apple-system','BlinkMacSystemFont','system-ui','sans-serif'],
+              mono: ['JetBrains Mono','ui-monospace','SFMono-Regular','monospace'],
+            },
+          },
+        },
+      };
+    </script>
+
+    <style>
+      :root {
+        --bg: #f7f6f3;
+        --panel: #ffffff;
+        --ink: #18181b;
+        --ink-2: #3f3f46;
+        --muted: #71717a;
+        --line: #e7e5e0;
+        --line-2: #efece6;
+        --accent: oklch(48% 0.12 268);
+        --accent-soft: oklch(96% 0.02 268);
+        --warn: oklch(64% 0.14 60);
+        --ok: oklch(58% 0.10 155);
+        --danger: oklch(58% 0.16 25);
+      }
+      html, body { background: var(--bg); color: var(--ink); }
+      body {
+        font-family: 'Pretendard Variable', Pretendard, Inter, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .ssu-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+      .ssu-divide { border-color: var(--line); }
+      .ssu-hover:hover { background: var(--line-2); }
+      .ssu-chip { border: 1px solid var(--line); background: #fff; }
+      .accent-text { color: var(--accent); }
+      .accent-bg { background: var(--accent); }
+      .accent-soft-bg { background: var(--accent-soft); }
+      .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+      .grid-bg {
+        background-image:
+          linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(0,0,0,0.03) 1px, transparent 1px);
+        background-size: 24px 24px;
+      }
+      .scroll-hide::-webkit-scrollbar { display: none; }
+      .scroll-hide { scrollbar-width: none; }
+      .stripe-bg {
+        background-image: repeating-linear-gradient(135deg, rgba(0,0,0,0.04) 0 1px, transparent 1px 8px);
+      }
+      .ring-accent { box-shadow: 0 0 0 3px oklch(48% 0.12 268 / 0.18); }
+      .typing::after {
+        content: '▍';
+        margin-left: 2px;
+        color: var(--accent);
+        animation: blink 1s steps(1) infinite;
+      }
+      @keyframes blink { 50% { opacity: 0; } }
+      .fade-in { animation: fadeIn .25s ease-out both; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+      .ssu-input {
+        width: 100%; height: 34px; padding: 0 10px;
+        border: 1px solid var(--line); border-radius: 8px;
+        background: #fff; font-size: 12.5px; outline: none;
+      }
+      .ssu-input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px oklch(48% 0.12 268 / 0.15);
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
