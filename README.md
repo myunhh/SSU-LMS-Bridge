@@ -1,85 +1,105 @@
-# LMS-Bridge
+# SSU-LMS-Bridge
 
-숭실대 스마트캠퍼스 LMS(`lms.ssu.ac.kr`)의 강의 자료를 **MCP 서버**로 추상화하고,  
-**Notion**에는 공지·과제·메타데이터를 동기화하며,  
-**Obsidian Vault**는 강의 교안 파일의 로컬 저장소로 활용하는 개인 학습 인프라.
+숭실대학교 고급AI수학 기말 프로젝트
+
+숭실대 스마트캠퍼스 LMS(`lms.ssu.ac.kr`)의 강의·공지·과제·자료를 가져와
+**FastAPI 백엔드 + React 프론트엔드 + LLM 채팅**으로 통합 제공하는 웹 앱.
 
 ```
-LMS (SPA, Playwright)
-  └─ LMS Adapter
-        ├─ MCP Server  →  Claude / LLM
-        ├─ Notion Sync →  공지 · 과제
-        └─ Obsidian    →  교안 파일 로컬 저장
+LMS (SSO + Canvas REST API)
+   └─ FastAPI Backend
+         ├─ /api/courses, /api/assignments, /api/notices
+         ├─ /api/chat (litellm: openai / gemini / anthropic)
+         └─ /api/sync (APScheduler)
+              ↓
+         React Frontend (Vite)
+```
+
+---
+
+## 디렉터리 구조
+
+```
+ssu-lms-bridge/
+├── backend/          # FastAPI Python 백엔드
+│   ├── app/
+│   │   ├── adapter/      # LMS 인증 + Canvas API
+│   │   ├── api/routes/   # REST + WebSocket 엔드포인트
+│   │   ├── services/     # LLM 등 도메인 서비스
+│   │   ├── config.py
+│   │   ├── models.py
+│   │   └── main.py
+│   ├── tests/
+│   └── pyproject.toml
+├── frontend/         # React + Vite 프론트엔드
+│   ├── src/
+│   │   ├── api/          # 백엔드 호출 함수
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── package.json
+│   └── vite.config.js
+└── tmp/              # 기존 참고 코드 (gitignored)
 ```
 
 ---
 
 ## 빠른 시작
 
-### 1. 환경 설정
+### Backend
 
 ```bash
-# 의존성 설치 (uv 권장)
-uv pip install -e ".[dev]"
-
-# Playwright 브라우저 설치
+cd backend
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 playwright install chromium
 
-# 환경 변수 설정
-cp .env.example .env
-# .env 를 열어서 학번, 비밀번호, Notion 토큰 등을 채워주세요
+# .env 설정 (LMS_USERNAME, LMS_PASSWORD, LLM_API_KEY 등)
+uvicorn app.main:app --reload --port 8000
 ```
 
-### 2. 환경 점검
+→ `http://localhost:8000/docs` 에서 Swagger UI 확인
+
+### Frontend
 
 ```bash
-python scripts/check_env.py
+cd frontend
+npm install
+npm run dev
 ```
 
-### 3. CLI 사용
-
-```bash
-lms-bridge --help
-lms-bridge status        # 설정 상태 확인
-lms-bridge login         # LMS 로그인 및 세션 캐시 (Phase 1-B)
-lms-bridge sync          # Notion / Vault 동기화 (Phase 3-4)
-lms-bridge mcp           # MCP 서버 실행 (Phase 2)
-```
-
-### 4. 테스트 실행
-
-```bash
-pytest                   # 전체 테스트
-pytest tests/test_config.py -v
-pytest tests/test_models.py -v
-```
+→ `http://localhost:3000` 접속 (`/api`는 자동으로 8000 포트로 프록시)
 
 ---
 
-## 개발 로드맵
+## 개발 로드맵 (3주)
 
-| 주차 | Phase | 목표 |
-|------|-------|------|
-| 1주 | 1-A | 프로젝트 셋업 + SSO 로그인 + 강의 목록 파싱 |
-| 2주 | 1-B | 강의자료 · 공지 · 과제 파싱 + 단위 테스트 |
-| 3주 | 2-A | MCP SDK 셋업 + Tools 정의 |
-| 4주 | 2-B | Claude Desktop 연동 + 에러 핸들링 |
-| 5주 | 3   | Notion DB 동기화 |
-| 6주 | 4   | Obsidian Vault 파일 다운로드 |
-| 7주 | 5   | 자동화 · CLI · 문서화 |
+| 주차 | 목표 |
+|------|------|
+| 1주 | 환경 세팅 · FastAPI 기반 · LMS 인증 · 강의 목록 페이지 |
+| 2주 | 과제/공지/자료 라우터 · 강의 상세 페이지 · UI 다듬기 |
+| 3주 | LLM 채팅 (WebSocket 스트리밍) · 동기화 스케줄러 · 통합 테스트 |
+
+자세한 일자별 플랜은 Notion **TODO for Week** 페이지 참고.
 
 ---
 
 ## 기술 스택
 
-- **언어:** Python 3.11+
-- **스크래핑:** Playwright (SPA 대응) + BeautifulSoup4
-- **MCP:** `mcp` Python SDK
-- **Notion:** `notion-client`
-- **설정:** `pydantic-settings` + `.env`
-- **로깅:** `loguru`
-- **CLI:** `typer` + `rich`
-- **스케줄러:** `APScheduler`
+**Backend**
+- Python 3.11+
+- FastAPI + Uvicorn (REST + WebSocket)
+- Playwright (LMS SSO 로그인)
+- httpx (Canvas REST API 클라이언트)
+- litellm (OpenAI / Gemini / Anthropic 멀티 프로바이더)
+- pydantic-settings, loguru, APScheduler
+
+**Frontend**
+- React 18 + React Router
+- Vite (개발 서버 + 번들러)
+- JavaScript (TypeScript X)
 
 ---
 
@@ -87,4 +107,4 @@ pytest tests/test_models.py -v
 
 - ⚠️ `.env` 파일은 **절대 Git 에 커밋하지 마세요** (자격증명 포함)
 - 스마트캠퍼스 LMS 는 매일 **새벽 3시** 데이터 갱신 → 동기화는 **오전 4시 이후** 권장
-- LMS 는 SPA 구조 → `httpx` 단독 스크래핑 불가, **Playwright 필수**
+- LMS 는 SPA 구조 → 로그인은 `Playwright` 필수, 이후 데이터 조회는 `canvas.ssu.ac.kr` REST API 활용
