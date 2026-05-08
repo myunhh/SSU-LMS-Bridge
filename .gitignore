@@ -23,6 +23,7 @@ env/
 .coverage
 htmlcov/
 .mypy_cache/
+tmp/
 
 # ── IDE ─────────────────────────────────────────────────────
 .vscode/
@@ -37,3 +38,10 @@ Thumbs.db
 # ── Playwright ──────────────────────────────────────────────
 playwright-report/
 test-results/
+
+# ── 기존 코드 임시 보관 ────────────────────────────────────────
+tmp/
+
+# ── Node / Frontend ────────────────────────────────────────
+node_modules/
+frontend/dist/

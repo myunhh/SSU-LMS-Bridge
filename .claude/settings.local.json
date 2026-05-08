@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(.venv/bin/python scripts/analyze_login.py)"
+      "Bash(.venv/bin/python scripts/analyze_login.py)",
+      "mcp__24709cd6-844d-4695-b831-e21157daa12f__notion-fetch",
+      "mcp__24709cd6-844d-4695-b831-e21157daa12f__notion-update-page",
+      "mcp__24709cd6-844d-4695-b831-e21157daa12f__notion-create-pages",
+      "Bash(open -a \"GitHub Desktop\" /Users/myunhh/vsc/ssu-lms-bridge)",
+      "Bash(git remote *)",
+      "Bash(git fetch *)",
+      "Bash(gh auth *)",
+      "Bash(git add *)",
+      "Bash(git rm *)"
     ]
   }
 }
