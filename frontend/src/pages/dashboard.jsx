@@ -1,6 +1,6 @@
 /* Dashboard view */
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { COURSES, ASSIGNMENTS, NOTICES, MODULES, ACTIVITY } from './data';
+import { COURSES, ASSIGNMENTS, NOTICES, MODULES, ACTIVITY, USER, SEMESTER, NOW } from './data';
 import Icon from './icons';
 
 /* ---------- helpers ---------- */
@@ -12,9 +12,8 @@ const fmtDateKR = (iso) => {
   return `${M}/${D} (${wd}) ${hh}:${mm}`;
 };
 const daysUntil = (iso) => {
-  const now = new Date('2026-05-09T10:00:00');
   const d = new Date(iso);
-  const ms = d - now;
+  const ms = d - NOW;
   if (ms < 0) return { label: '지남', kind: 'past', n: ms/86400000 };
   const days = Math.floor(ms / 86400000);
   const hrs  = Math.floor((ms % 86400000) / 3600000);
@@ -37,6 +36,19 @@ function Dashboard({ openCourse, openChat }) {
   const submitted     = ASSIGNMENTS.filter(a => a.submitted).length;
   const totalAssign   = ASSIGNMENTS.length;
 
+  // 이번 주(NOW 기준 7일 이내) 마감 과제 수
+  const weekMs = 7 * 86400000;
+  const dueThisWeek = ASSIGNMENTS.filter(a => {
+    if (a.submitted) return false;
+    const diff = new Date(a.due) - NOW;
+    return diff >= 0 && diff <= weekMs;
+  }).length;
+
+  // 전체 강의 평균 진행률
+  const avgProgress = COURSES.length
+    ? Math.round((COURSES.reduce((s,c) => s + c.progress, 0) / COURSES.length) * 100)
+    : 0;
+
   return (
     <div className="px-7 py-6 space-y-6 max-w-[1280px]">
       {/* Hero */}
@@ -44,9 +56,9 @@ function Dashboard({ openCourse, openChat }) {
         <div className="absolute inset-0 grid-bg pointer-events-none opacity-50" />
         <div className="relative flex items-start gap-8">
           <div className="flex-1">
-            <div className="text-[11px] mono text-zinc-500 mb-1">2026년 5월 9일 · 토요일 · 11주차</div>
+            <div className="text-[11px] mono text-zinc-500 mb-1">{SEMESTER.todayLabel}</div>
             <h1 className="text-[26px] font-semibold tracking-tight leading-tight">
-              안녕하세요, 강민님 — <span className="text-zinc-500">이번 주 마감 4건이 있어요.</span>
+              안녕하세요, {USER.name}님 — <span className="text-zinc-500">이번 주 마감 {dueThisWeek}건이 있어요.</span>
             </h1>
             <div className="flex flex-wrap gap-2 mt-4">
               <button onClick={openChat}
@@ -62,9 +74,9 @@ function Dashboard({ openCourse, openChat }) {
             </div>
           </div>
           <div className="hidden md:grid grid-cols-3 gap-3 w-[420px]">
-            <Stat label="이번 주 마감" value="4" hint="다가오는 과제" />
+            <Stat label="이번 주 마감" value={String(dueThisWeek)} hint="다가오는 과제" />
             <Stat label="안 읽은 공지" value={String(noticesUnread)} hint="LMS 신규" />
-            <Stat label="진행률" value="62%" hint="11/16주차" />
+            <Stat label="진행률" value={`${avgProgress}%`} hint={`${SEMESTER.weekCurrent}/${SEMESTER.weekTotal}주차`} />
           </div>
         </div>
       </div>
@@ -187,7 +199,7 @@ function Dashboard({ openCourse, openChat }) {
         <header className="flex items-center justify-between mb-3">
           <div>
             <div className="text-[14.5px] font-semibold">강의 그리드</div>
-            <div className="text-[11.5px] text-zinc-500">7개 강의 · 캔버스 동기화 완료</div>
+            <div className="text-[11.5px] text-zinc-500">{COURSES.length}개 강의 · 캔버스 동기화 완료</div>
           </div>
           <button className="text-[12px] text-zinc-500 flex items-center gap-1 hover:text-zinc-900">
             <Icon.Filter size={13}/> 학기별

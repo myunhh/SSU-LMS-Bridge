@@ -1,6 +1,6 @@
 /* Course Detail view */
 import { useState as uS, useEffect as uE, useRef as uR, useMemo as uM } from 'react';
-import { COURSES as CS, ASSIGNMENTS as AS, NOTICES as NS, MODULES as MS } from './data';
+import { COURSES as CS, ASSIGNMENTS as AS, NOTICES as NS, MODULES as MS, NOW } from './data';
 import I2 from './icons';
 
 const fmt2 = (iso) => {
@@ -8,7 +8,7 @@ const fmt2 = (iso) => {
   return `${d.getMonth()+1}/${d.getDate()} (${'일월화수목금토'[d.getDay()]}) ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 };
 const dU = (iso) => {
-  const ms = new Date(iso) - new Date('2026-05-09T10:00:00');
+  const ms = new Date(iso) - NOW;
   if (ms < 0) return { label: '지남', tone: 'text-zinc-400' };
   const days = Math.floor(ms/86400000);
   if (days === 0) return { label: '오늘', tone: 'text-[var(--danger)]' };

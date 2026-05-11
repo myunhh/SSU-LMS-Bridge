@@ -1,10 +1,10 @@
 /* Chat / LLM Assistant view */
 import { useState as chS, useEffect as chE, useRef as chR } from 'react';
-import { COURSES as chCS, ASSIGNMENTS as chAS, CHAT_SEED, SUGGESTIONS } from './data';
+import { COURSES as chCS, ASSIGNMENTS as chAS, CHAT_SEED, SUGGESTIONS, CONVERSATIONS, NOW } from './data';
 import Ich from './icons';
 
 const dU = (iso) => {
-  const ms = new Date(iso) - new Date('2026-05-09T10:00:00');
+  const ms = new Date(iso) - NOW;
   if (ms < 0) return { label: '지남', tone: 'text-zinc-400' };
   const days = Math.floor(ms / 86400000);
   if (days === 0) return { label: '오늘', tone: 'text-[var(--danger)]' };
@@ -47,15 +47,9 @@ function ChatView() {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto scroll-hide p-2 space-y-1">
-          {[
-            { t: '이번 주 마감 정리', sub: '4건 · 방금', active: true },
-            { t: 'SVD 5문항 퀴즈',    sub: '고급AI수학 · 어제' },
-            { t: '회귀분석 보고서 요약', sub: '통계적학습이론 · 5/6' },
-            { t: 'Transformer 구현 개요', sub: '딥러닝과응용 · 5/5' },
-            { t: '운영체제 시험 정리', sub: '운영체제 · 5/3' },
-          ].map((c,i) => (
-            <button key={i} className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] ${c.active ? 'bg-white border border-[var(--line)]' : 'hover:bg-white/60'}`}>
-              <div className="font-medium truncate">{c.t}</div>
+          {CONVERSATIONS.map((c) => (
+            <button key={c.id} className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] ${c.active ? 'bg-white border border-[var(--line)]' : 'hover:bg-white/60'}`}>
+              <div className="font-medium truncate">{c.title}</div>
               <div className="text-[10.5px] mono text-zinc-500 truncate">{c.sub}</div>
             </button>
           ))}

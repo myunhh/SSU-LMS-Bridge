@@ -11,7 +11,7 @@ import LandingPage from './pages/landing';
 import LoginPage from './pages/login';
 import SignupPage from './pages/signup';
 import Icon from './pages/icons';
-import { COURSES } from './pages/data';
+import { COURSES, SEMESTER } from './pages/data';
 
 // ── Auth context ─────────────────────────────────────────────────
 const AuthContext = createContext(null);
@@ -84,7 +84,7 @@ function AppLayout() {
   const setCourse = (id) => navigate(`/course/${id}`);
 
   const titles = {
-    dashboard:  { t: '대시보드',     s: '2026년 1학기 · 11주차' },
+    dashboard:  { t: '대시보드',     s: `${SEMESTER.label} · ${SEMESTER.weekLabel}` },
     calendar:   { t: '캘린더',       s: '과제 마감 · 공지 · 학사 이벤트' },
     chat:       { t: '학습 비서',    s: 'RAG · 강의자료 컨텍스트 활성' },
     connectors: { t: '커넥터',       s: 'LMS · Notion · Obsidian · LLM' },

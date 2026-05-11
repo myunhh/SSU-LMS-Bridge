@@ -1,6 +1,7 @@
 /* Settings view */
 import { useState as stS } from 'react';
 import Ist from './icons';
+import { USER, SEMESTER } from './data';
 
 /* ============== Settings ============== */
 function SettingsView() {
@@ -95,17 +96,17 @@ function AccountSection() {
           <button className="h-8 px-3 rounded-md accent-bg text-white text-[12px]">변경 저장</button>
         </>}>
         <div className="flex items-center gap-4 pb-2">
-          <div className="h-16 w-16 rounded-full bg-zinc-200 flex items-center justify-center text-[18px] mono text-zinc-700">JK</div>
+          <div className="h-16 w-16 rounded-full bg-zinc-200 flex items-center justify-center text-[18px] mono text-zinc-700">{USER.name.slice(0, 2)}</div>
           <div className="flex-1">
-            <div className="text-[14px] font-medium">정 강민</div>
-            <div className="text-[11.5px] text-zinc-500 mono">20231234@soongsil.ac.kr</div>
+            <div className="text-[14px] font-medium">{USER.name}</div>
+            <div className="text-[11.5px] text-zinc-500 mono">{USER.email}</div>
           </div>
           <button className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px]">사진 변경</button>
         </div>
         <div className="border-t border-[var(--line-2)] pt-4 space-y-2">
-          <Row label="표시 이름"><input defaultValue="정 강민" className="ssu-input"/></Row>
-          <Row label="학과"><input defaultValue="AI융합학부" className="ssu-input"/></Row>
-          <Row label="기본 학기"><select className="ssu-input"><option>2026년 1학기</option><option>2025년 2학기</option></select></Row>
+          <Row label="표시 이름"><input defaultValue={USER.name} className="ssu-input"/></Row>
+          <Row label="학과"><input defaultValue={USER.major} className="ssu-input"/></Row>
+          <Row label="기본 학기"><select className="ssu-input"><option>{SEMESTER.label}</option><option>2025년 2학기</option></select></Row>
           <Row label="언어">
             <div className="flex gap-1.5">
               <PillBtn active>한국어</PillBtn>

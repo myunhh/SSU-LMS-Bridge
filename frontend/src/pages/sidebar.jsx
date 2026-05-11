@@ -1,7 +1,7 @@
 /* Sidebar + Topbar */
 import React from 'react';
 import Icon from './icons';
-import { COURSES } from './data';
+import { COURSES, NOTIFICATIONS } from './data';
 
 /* ---------- Sidebar ---------- */
 function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) {
@@ -96,30 +96,9 @@ function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) 
 }
 
 /* ---------- Notifications popover ---------- */
-const NOTIFS_SEED = [
-  { id: 1, kind: 'deadline', course: '머신러닝',     courseColor: '#7c3aed',
-    title: '과제 #4 — Ridge/Lasso 비교 마감',
-    body: '오늘 23:59 마감 · 6시간 남음', time: '17분 전', unread: true },
-  { id: 2, kind: 'notice',   course: '운영체제',     courseColor: '#0f766e',
-    title: '중간고사 채점 결과 공지',
-    body: '평균 72.4점 · 본인 점수: 81점', time: '1시간 전', unread: true },
-  { id: 3, kind: 'sync',     course: null,           courseColor: '#3a4ca8',
-    title: 'Notion 동기화 완료',
-    body: '새 자료 12건 · 공지 3건이 노션에 반영되었습니다', time: '2시간 전', unread: true },
-  { id: 4, kind: 'graded',   course: '데이터베이스', courseColor: '#9a3412',
-    title: '실습 #3 채점 완료',
-    body: '15.5 / 20점 · 피드백 1건', time: '오늘 09:12', unread: false },
-  { id: 5, kind: 'notice',   course: '컴퓨터 네트워크', courseColor: '#1f2937',
-    title: '오늘 강의 휴강 안내',
-    body: '교수 출장으로 11:00 강의 휴강', time: '어제 18:40', unread: false },
-  { id: 6, kind: 'deadline', course: '소프트웨어 공학', courseColor: '#0284c7',
-    title: '팀 프로젝트 발표 자료 제출',
-    body: 'D-3 · 5/12 (화) 23:59', time: '어제 14:02', unread: false },
-];
-
 function NotificationsPopover({ onClose }) {
   const [tab, setTab] = React.useState('all');
-  const [items, setItems] = React.useState(NOTIFS_SEED);
+  const [items, setItems] = React.useState(NOTIFICATIONS);
   const ref = React.useRef(null);
 
   React.useEffect(() => {
