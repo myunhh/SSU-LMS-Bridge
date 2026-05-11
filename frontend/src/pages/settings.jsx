@@ -1,20 +1,14 @@
 /* Settings view */
 import { useState as stS } from 'react';
 import Ist from './icons';
-import { USER, SEMESTER } from './data';
+import { USER, SEMESTER } from '../data/mockData';
+import { SETTINGS_SECTIONS, APP_BRAND } from '../data/uiConfig';
 
 /* ============== Settings ============== */
 function SettingsView() {
   const [section, setSection] = stS('account');
-  const sections = [
-    { id: 'account',     label: '계정',           icon: Ist.Settings },
-    { id: 'notifications', label: '알림',         icon: Ist.Bell },
-    { id: 'sync',        label: '동기화',         icon: Ist.Sync },
-    { id: 'appearance',  label: '외관',           icon: Ist.Eye },
-    { id: 'shortcuts',   label: '단축키',         icon: Ist.Code },
-    { id: 'data',        label: '데이터 & 보안',  icon: Ist.File },
-    { id: 'about',       label: '정보',           icon: Ist.External },
-  ];
+  // uiConfig 의 SETTINGS_SECTIONS 는 아이콘을 문자열로 보관 — 여기서 컴포넌트로 resolve
+  const sections = SETTINGS_SECTIONS.map(s => ({ ...s, icon: Ist[s.iconName] }));
 
   return (
     <div className="px-7 py-6 max-w-[1200px]">
@@ -39,7 +33,7 @@ function SettingsView() {
               })}
             </nav>
             <div className="m-2 mt-3 p-3 rounded-lg bg-[var(--line-2)]/50 border border-[var(--line)] text-[11px] text-zinc-600 leading-relaxed">
-              <div className="mono text-zinc-500 mb-1">v0.6.2 · self-hosted</div>
+              <div className="mono text-zinc-500 mb-1">{APP_BRAND.version}</div>
               localhost:8000 백엔드와 연결 중. 모든 자격 증명은 <span className="mono">.env</span>에 로컬 보관됩니다.
             </div>
           </div>

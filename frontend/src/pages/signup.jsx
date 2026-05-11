@@ -2,22 +2,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
-
-const STEPS = [
-  { id: 1, label: '기본 정보', sub: '이름과 학번을 입력해주세요' },
-  { id: 2, label: 'LMS',       sub: '스마트캠퍼스 계정을 연결합니다' },
-  { id: 3, label: 'Notion',    sub: 'Integration 토큰을 입력해주세요', optional: true },
-  { id: 4, label: 'Obsidian',  sub: 'MCP 연결 정보를 입력해주세요', optional: true },
-  { id: 5, label: 'Claude',    sub: 'Anthropic API 키를 입력해주세요' },
-];
-
-const INITIAL = {
-  name: '', studentId: '', password: '', passwordConfirm: '',
-  lmsId: '', lmsPassword: '',
-  notionToken: '', notionPageId: '',
-  obsidianAuthCode: '', obsidianVault: 'LMS_Bridge_Vault', obsidianEndpoint: 'http://localhost:27124/mcp',
-  claudeApiKey: '', claudeModel: 'claude-haiku-4-5',
-};
+import { SIGNUP_STEPS as STEPS, SIGNUP_INITIAL as INITIAL } from '../data/uiConfig';
 
 export default function SignupPage() {
   const [step, setStep] = useState(1);

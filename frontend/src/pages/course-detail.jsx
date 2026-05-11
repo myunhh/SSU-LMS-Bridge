@@ -1,6 +1,6 @@
 /* Course Detail view */
 import { useState as uS, useEffect as uE, useRef as uR, useMemo as uM } from 'react';
-import { COURSES as CS, ASSIGNMENTS as AS, NOTICES as NS, MODULES as MS, NOW } from './data';
+import { COURSES as CS, ASSIGNMENTS as AS, NOTICES as NS, MODULES as MS, NOW } from '../data/mockData';
 import I2 from './icons';
 
 const fmt2 = (iso) => {

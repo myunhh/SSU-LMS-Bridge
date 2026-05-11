@@ -1,6 +1,6 @@
 /* Dashboard view */
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { COURSES, ASSIGNMENTS, NOTICES, MODULES, ACTIVITY, USER, SEMESTER, NOW } from './data';
+import { COURSES, ASSIGNMENTS, NOTICES, MODULES, ACTIVITY, USER, SEMESTER, NOW } from '../data/mockData';
 import Icon from './icons';
 
 /* ---------- helpers ---------- */

@@ -1,7 +1,8 @@
 /* Sidebar + Topbar */
 import React from 'react';
 import Icon from './icons';
-import { COURSES, NOTIFICATIONS } from './data';
+import { COURSES, NOTIFICATIONS } from '../data/mockData';
+import { NAV_ITEMS, APP_BRAND } from '../data/uiConfig';
 
 /* ---------- Sidebar ---------- */
 function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) {
@@ -30,8 +31,8 @@ function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) 
           </svg>
         </div>
         <div className="leading-tight">
-          <div className="text-[13.5px] font-semibold tracking-tight">LMS Bridge</div>
-          <div className="text-[11px] text-zinc-500 mono">ssu · 2026 · 1학기</div>
+          <div className="text-[13.5px] font-semibold tracking-tight">{APP_BRAND.name}</div>
+          <div className="text-[11px] text-zinc-500 mono">{APP_BRAND.subline}</div>
         </div>
       </div>
 
@@ -45,10 +46,10 @@ function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) 
       </div>
 
       <nav className="px-3 pt-4 space-y-0.5">
-        <NavBtn id="dashboard" label="대시보드" IconCmp={Icon.Home} />
-        <NavBtn id="calendar"  label="캘린더"  IconCmp={Icon.Calendar} badge="6" />
-        <NavBtn id="chat"      label="학습 비서" IconCmp={Icon.Sparkles} />
-        <NavBtn id="connectors" label="커넥터"  IconCmp={Icon.Plug} badge="4/5" />
+        {NAV_ITEMS.map(item => (
+          <NavBtn key={item.id} id={item.id} label={item.label}
+                  IconCmp={Icon[item.iconName]} badge={item.badge} />
+        ))}
       </nav>
 
       <div className="px-4 mt-5 mb-2 text-[10.5px] uppercase tracking-[0.08em] text-zinc-500 font-medium">수강 강의</div>

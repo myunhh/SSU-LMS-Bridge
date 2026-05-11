@@ -1,6 +1,7 @@
 /* Chat / LLM Assistant view */
 import { useState as chS, useEffect as chE, useRef as chR } from 'react';
-import { COURSES as chCS, ASSIGNMENTS as chAS, CHAT_SEED, SUGGESTIONS, CONVERSATIONS, NOW } from './data';
+import { COURSES as chCS, ASSIGNMENTS as chAS, CHAT_SEED, SUGGESTIONS, CONVERSATIONS, NOW } from '../data/mockData';
+import { CHAT_MODEL_LABEL, CHAT_FOOTER_NOTE, CHAT_RAG_ENABLED } from '../data/uiConfig';
 import Ich from './icons';
 
 const dU = (iso) => {
@@ -55,7 +56,7 @@ function ChatView() {
           ))}
         </div>
         <div className="p-3 border-t border-[var(--line)] text-[10.5px] mono text-zinc-500">
-          모델 <span className="text-zinc-800">claude-haiku-4-5</span> · RAG 켜짐
+          모델 <span className="text-zinc-800">{CHAT_MODEL_LABEL}</span>{CHAT_RAG_ENABLED ? ' · RAG 켜짐' : ''}
         </div>
       </aside>
 
@@ -95,7 +96,7 @@ function ChatView() {
               </div>
             </div>
             <div className="text-[10.5px] mono text-zinc-500 mt-2 text-center">
-              비서는 LMS에 동기화된 자료만 컨텍스트로 사용합니다 · 응답은 검토 후 활용해 주세요
+              {CHAT_FOOTER_NOTE}
             </div>
           </div>
         </div>

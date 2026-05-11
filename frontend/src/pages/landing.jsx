@@ -1,42 +1,14 @@
 /* Landing page */
 import { useNavigate } from 'react-router-dom';
 import Icon from './icons';
+import { LANDING_FEATURES, LANDING_STEPS } from '../data/uiConfig';
 
 export default function LandingPage() {
   const navigate = useNavigate();
 
-  const features = [
-    {
-      icon: Icon.Book,
-      color: 'var(--accent)',
-      title: 'LMS 자동 동기화',
-      desc: '숭실대 스마트캠퍼스에서 강의자료, 공지, 과제를 자동으로 수집합니다. 세션 캐시로 12배 빠른 재동기화.',
-    },
-    {
-      icon: Icon.Sparkles,
-      color: 'oklch(54% 0.14 305)',
-      title: 'AI 학습 비서',
-      desc: '강의자료를 컨텍스트로 활용하는 RAG 기반 AI 비서. 마감 정리, 개념 설명, 퀴즈 생성을 도와드립니다.',
-    },
-    {
-      icon: Icon.Plug,
-      color: 'oklch(58% 0.13 195)',
-      title: '다중 커넥터',
-      desc: 'Notion, Obsidian, Gmail 등 사용 중인 서비스와 연동해 강의 데이터를 원하는 곳으로 내보냅니다.',
-    },
-    {
-      icon: Icon.Calendar,
-      color: 'oklch(58% 0.13 35)',
-      title: '통합 캘린더',
-      desc: '모든 강의의 마감일, 공지, 시험 일정을 하나의 캘린더에서 관리합니다.',
-    },
-  ];
-
-  const steps = [
-    { n: '01', title: '로그인', desc: '숭실대 학번과 LMS 비밀번호로 1분 안에 계정을 연결합니다.' },
-    { n: '02', title: '커넥터 연결', desc: 'Notion, Obsidian, LLM 등 원하는 서비스를 연동합니다.' },
-    { n: '03', title: '자동 동기화', desc: '이후 강의자료·공지·과제가 매일 자동으로 업데이트됩니다.' },
-  ];
+  // uiConfig 의 features 는 iconName 문자열 — 여기서 컴포넌트로 resolve
+  const features = LANDING_FEATURES.map(f => ({ ...f, icon: Icon[f.iconName] }));
+  const steps = LANDING_STEPS;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>

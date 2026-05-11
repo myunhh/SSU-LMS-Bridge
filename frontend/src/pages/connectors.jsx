@@ -1,6 +1,6 @@
 /* Connectors view */
 import { useState as cnS } from 'react';
-import { CONNECTORS as CN } from './data';
+import { CONNECTORS as CN } from '../data/mockData';
 import Icn from './icons';
 
 /* ============== Connectors ============== */

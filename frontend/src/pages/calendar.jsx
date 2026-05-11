@@ -1,5 +1,5 @@
 /* Calendar view */
-import { COURSES as C3, CALENDAR_MONTH, CALENDAR_EVENTS } from './data';
+import { COURSES as C3, CALENDAR_MONTH, CALENDAR_EVENTS } from '../data/mockData';
 import I3c from './icons';
 
 /* ============== Calendar ============== */

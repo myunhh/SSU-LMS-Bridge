@@ -11,7 +11,8 @@ import LandingPage from './pages/landing';
 import LoginPage from './pages/login';
 import SignupPage from './pages/signup';
 import Icon from './pages/icons';
-import { COURSES, SEMESTER } from './pages/data';
+import { COURSES, SEMESTER } from './data/mockData';
+import { PAGE_TITLES, renderTitle } from './data/uiConfig';
 
 // ── Auth context ─────────────────────────────────────────────────
 const AuthContext = createContext(null);
@@ -83,16 +84,10 @@ function AppLayout() {
   const setRoute = (r) => { if (r !== 'course') navigate(`/${r}`); };
   const setCourse = (id) => navigate(`/course/${id}`);
 
-  const titles = {
-    dashboard:  { t: '대시보드',     s: `${SEMESTER.label} · ${SEMESTER.weekLabel}` },
-    calendar:   { t: '캘린더',       s: '과제 마감 · 공지 · 학사 이벤트' },
-    chat:       { t: '학습 비서',    s: 'RAG · 강의자료 컨텍스트 활성' },
-    connectors: { t: '커넥터',       s: 'LMS · Notion · Obsidian · LLM' },
-    settings:   { t: '설정',         s: '계정 · 알림 · 동기화 · 외관' },
-    course:     null,
-  };
-
-  const cur = titles[route];
+  // PAGE_TITLES 의 부제(s)에 {{semester.*}} 같은 토큰이 들어있을 수 있어 renderTitle 로 치환
+  const cur = PAGE_TITLES[route]
+    ? { t: PAGE_TITLES[route].t, s: renderTitle(PAGE_TITLES[route].s, { semester: SEMESTER }) }
+    : null;
   const c = COURSES.find(x => x.id === courseId);
   const top = cur || { t: c.name, s: `${c.code} · ${c.professor} 교수 · ${c.credits}학점` };
 
