@@ -11,12 +11,18 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 // ── 앱 브랜딩 ────────────────────────────────────────────────────────────────
+const env = import.meta.env;
 export const APP_BRAND = {
-  name: 'LMS Bridge',
-  tag: 'ssu',
-  subline: 'ssu · 2026 · 1학기',     // sidebar 상단에 노출
-  version: 'v0.6.2 · self-hosted',
+  name:    env.VITE_APP_NAME    || 'LMS Bridge',
+  tag:     'ssu',
+  subline: 'ssu · 2026 · 1학기',                                // sidebar 상단
+  version: `v${env.VITE_APP_VERSION || '0.0.0'} · self-hosted`, // 설정 페이지 푸터
 };
+
+// ── API 기본 URL ─────────────────────────────────────────────────────────────
+// 모든 fetch 호출이 공유. 빈 문자열이면 vite proxy 가 /api 를 처리.
+export const API_BASE = env.VITE_API_BASE_URL || '';
+export const WS_BASE  = env.VITE_WS_BASE_URL  || '';
 
 // ── 사이드바 네비게이션 ──────────────────────────────────────────────────────
 // id = 라우트 경로의 첫 세그먼트, iconName = pages/icons.jsx 의 키

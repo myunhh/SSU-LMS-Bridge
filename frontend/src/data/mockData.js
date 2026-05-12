@@ -1,23 +1,34 @@
 // src/data/mockData.js
 // ──────────────────────────────────────────────────────────────────────────────
-// 백엔드 API 응답을 흉내내는 mock 데이터.
-// 백엔드 연결 시 이 파일의 export 를 실제 fetch 호출로 교체하면 된다.
+// 백엔드 API 응답을 흉내내는 mock 데이터. → 백엔드 연결 시 실제 fetch 호출로 교체
 // 모든 페이지(dashboard, course-detail, chat, calendar, sidebar 등)는
-// 이 파일의 데이터만 참조한다. 페이지 안에서 따로 mock 데이터를 만들지 말 것.
+// 이 파일의 데이터만 참조한다.
+// ! 페이지 안에서 따로 mock 데이터를 만들지 말 것.
 //
-// ⚠️ UI 메뉴/문구/페이지 타이틀 같은 정적 콘텐츠는 ./uiConfig.js 에 있다.
+// ! UI 메뉴/문구/페이지 타이틀 같은 정적 콘텐츠는 ./uiConfig.js
+//
+// ── 환경 변수 ─────────────────────────────────────────────────────────────────
+// 브라우저 코드는 Node 의 `require('dotenv')` 를 못 쓴다 (브라우저에는 require 가
+// 없음). Vite 는 `frontend/.env` 의 VITE_* 변수를 import.meta.env 로 노출한다.
+//
+// ⚠️ Vite 의 환경변수는 빌드 시 코드에 박혀 모든 사용자에게 공개된다.
+//    LMS_PASSWORD, NOTION_TOKEN 같은 비밀값은 절대 VITE_* 로 두면 안 된다.
+//    (그것들은 backend/.env 에 두고 백엔드만 읽어야 함)
 // ──────────────────────────────────────────────────────────────────────────────
 
+const env = import.meta.env;
+
 // ── 현재 사용자 ────────────────────────────────────────────────────────────────
+// 데모/개발용 기본값 — 실제 운영에서는 로그인 후 백엔드에서 사용자 정보를 받아온다.
 const USER = {
-  name: '민윤홍',
-  studentId: '20231234',
-  email: 'kangmin@soongsil.ac.kr',
-  major: 'AI소프트웨어학부',
+  name:      env.VITE_DEMO_USER_NAME   || '민윤홍',
+  studentId: env.VITE_DEMO_STUDENT_ID  || '20231234',
+  email:     env.VITE_DEMO_USER_EMAIL  || 'student@soongsil.ac.kr',
+  major:     env.VITE_DEMO_USER_MAJOR  || 'AI소프트웨어학부',
 };
 
 // ── 현재 학기 / 시점 ───────────────────────────────────────────────────────────
-// NOW 는 모든 D-day 계산의 기준 시각. 실서비스 전환 시 `new Date()` 로 교체.
+// NOW 는 모든 D-day 계산의 기준 시각. `new Date()` 로 교체.
 const NOW = new Date('2026-05-09T10:00:00');
 
 const SEMESTER = {
