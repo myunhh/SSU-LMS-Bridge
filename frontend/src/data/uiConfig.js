@@ -82,7 +82,7 @@ export const SIGNUP_STEPS = [
 ];
 
 export const SIGNUP_INITIAL = {
-  name: '', studentId: '', password: '', passwordConfirm: '',
+  name: '', studentId: '', email: '', password: '', passwordConfirm: '',
   lmsId: '', lmsPassword: '',
   notionToken: '', notionPageId: '',
   obsidianAuthCode: '', obsidianVault: 'LMS_Bridge_Vault', obsidianEndpoint: 'http://localhost:27124/mcp',

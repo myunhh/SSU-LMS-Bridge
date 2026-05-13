@@ -22,7 +22,7 @@ export default function LoginPage() {
     if (!studentId.trim()) {
       e.studentId = '학번을 입력해주세요.';
     } else if (!STUDENT_ID_REGEX.test(studentId.trim())) {
-      e.studentId = '학번 형식이 올바르지 않습니다. (예: 20231234)';
+      e.studentId = '학번 형식이 올바르지 않습니다. (예: 20231111)';
     }
     if (!password) {
       e.password = '비밀번호를 입력해주세요.';

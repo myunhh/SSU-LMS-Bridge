@@ -16,11 +16,10 @@ const dUFor = (iso, NOW) => {
 /* ============== Chat ============== */
 function ChatView() {
   const {
-    courses: chCS, assignments: chAS, chatSeed, suggestions: SUGGESTIONS,
-    conversations: CONVERSATIONS, now: NOW,
+    chatSeed, suggestions: SUGGESTIONS,
+    conversations: CONVERSATIONS,
     appendChatMessage, startNewConversation, selectConversation,
   } = useData();
-  const dU = (iso) => dUFor(iso, NOW);
 
   const [msgs, setMsgs] = chS(chatSeed);
   const [input, setInput] = chS('');
@@ -144,14 +143,18 @@ function Bubble({ m }) {
 }
 
 function RichAnswer({ kind, text }) {
+  // RichAnswer 는 ChatView 의 자식 컴포넌트지만 별도 함수 — useData() 를 다시 호출해 데이터를 가져온다.
+  const { courses, assignments, now } = useData();
+  const dU = (iso) => dUFor(iso, now);
+
   if (kind === 'deadlines') {
-    const list = chAS.filter(a=>!a.submitted).slice(0,4);
+    const list = assignments.filter(a=>!a.submitted).slice(0,4);
     return (
       <div>
         <p>이번 주 마감 4건을 추렸어요. 비중과 권장 착수 시점을 함께 정리했습니다.</p>
         <div className="mt-3 grid gap-2">
           {list.map(a => {
-            const c = chCS.find(x=>x.id===a.course);
+            const c = courses.find(x=>x.id===a.course);
             const d = dU(a.due);
             return (
               <div key={a.id} className="rounded-lg border border-[var(--line)] p-3 flex items-center gap-3">

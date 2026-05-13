@@ -8,6 +8,9 @@ import { STUDENT_ID_REGEX } from '../auth/AccountStore';
 // 비밀번호: 8자 이상, 영문/숫자 1개 이상씩 포함
 const PASSWORD_RULE = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
 
+// 이메일: 흔한 기본 형식 (RFC 전체 대응은 과함. 백엔드에서 더 엄격하게)
+const EMAIL_RULE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function SignupPage() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(INITIAL);
@@ -34,13 +37,28 @@ export default function SignupPage() {
       if (!form.studentId.trim()) {
         e.studentId = '학번을 입력해주세요.';
       } else if (!STUDENT_ID_REGEX.test(form.studentId.trim())) {
-        e.studentId = '학번 형식이 올바르지 않습니다. (예: 20231234)';
+        e.studentId = '학번 형식이 올바르지 않습니다. (예: 20261111)';
       } else {
         // 중복 가입 차단 (로컬 확인)
         try {
           const list = JSON.parse(localStorage.getItem('ssu_accounts') || '[]');
           if (list.some(a => a.studentId === form.studentId.trim())) {
             e.studentId = '이미 가입된 학번입니다.';
+          }
+        } catch {}
+      }
+
+      if (!form.email.trim()) {
+        e.email = '이메일을 입력해주세요.';
+      } else if (!EMAIL_RULE.test(form.email.trim())) {
+        e.email = '이메일 형식이 올바르지 않습니다.';
+      } else {
+        // 이메일 중복도 차단
+        try {
+          const list = JSON.parse(localStorage.getItem('ssu_accounts') || '[]');
+          const lower = form.email.trim().toLowerCase();
+          if (list.some(a => a.email?.toLowerCase() === lower)) {
+            e.email = '이미 가입된 이메일입니다.';
           }
         } catch {}
       }
@@ -79,6 +97,7 @@ export default function SignupPage() {
       ...form,
       name:      form.name.trim(),
       studentId: form.studentId.trim(),
+      email:     form.email.trim().toLowerCase(),
     });
     setSubmitting(false);
 
@@ -167,6 +186,17 @@ export default function SignupPage() {
               </Field>
               <Field label="학번" error={errors.studentId}>
                 <input className="ssu-input mono" value={form.studentId} onChange={e => set('studentId', e.target.value)} placeholder="20231234"/>
+              </Field>
+              <Field label="이메일" error={errors.email} hint="알림 수신 및 계정 복구에 사용됩니다.">
+                <input
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  className="ssu-input"
+                  value={form.email}
+                  onChange={e => set('email', e.target.value)}
+                  placeholder="your@email.com"
+                />
               </Field>
               <Field label="비밀번호" error={errors.password} hint="8자 이상, 영문과 숫자 포함">
                 <input type="password" className="ssu-input" value={form.password} onChange={e => set('password', e.target.value)} placeholder="••••••••"/>

@@ -42,28 +42,37 @@ function writeAccounts(list) {
  * @returns {Promise<{ ok: true, user } | { ok: false, error }>}
  */
 export async function signup(payload) {
-  const { name, studentId, password } = payload;
+  const { name, studentId, email, password } = payload;
 
   // 1. 학번 형식
   if (!STUDENT_ID_REGEX.test(studentId)) {
     return { ok: false, error: '학번 형식이 올바르지 않습니다. (예: 20231234)' };
   }
 
-  // 2. 중복 가입 차단
+  // 2. 이메일 형식 (간단 검증 — UI 에서 한 번 더 검증되지만 직접 호출 대비)
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: '이메일 형식이 올바르지 않습니다.' };
+  }
+
+  // 3. 중복 가입 차단 (학번 + 이메일)
   const list = readAccounts();
   if (list.some(a => a.studentId === studentId)) {
     return { ok: false, error: '이미 가입된 학번입니다. 로그인 페이지로 이동해주세요.' };
   }
+  const lowerEmail = email.toLowerCase();
+  if (list.some(a => a.email?.toLowerCase() === lowerEmail)) {
+    return { ok: false, error: '이미 가입된 이메일입니다.' };
+  }
 
-  // 3. 비밀번호 해시
+  // 4. 비밀번호 해시
   const passwordHash = await hashPassword(password, studentId);
 
-  // 4. 저장
+  // 5. 저장
   const account = {
     name,
     studentId,
     passwordHash,
-    email:  `${studentId}@soongsil.ac.kr`,
+    email:  lowerEmail,
     major:  payload.major || 'AI소프트웨어학부',
     createdAt: new Date().toISOString(),
     // 연동 정보 (백엔드 붙으면 별도 secrets 테이블로 옮길 영역)
