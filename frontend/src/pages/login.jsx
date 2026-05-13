@@ -2,43 +2,67 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
+import { STUDENT_ID_REGEX } from '../auth/AccountStore';
 
 export default function LoginPage() {
   const [studentId, setStudentId] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [password, setPassword]   = useState('');
+  const [loading, setLoading]     = useState(false);
+  const [errors, setErrors]       = useState({});   // 필드별 inline 에러
+  const [formError, setFormError] = useState('');   // 폼 상단 일반 에러
 
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || '/dashboard';
 
+  // ── 폼 검증 ──────────────────────────────────────────────────────
+  const validate = () => {
+    const e = {};
+    if (!studentId.trim()) {
+      e.studentId = '학번을 입력해주세요.';
+    } else if (!STUDENT_ID_REGEX.test(studentId.trim())) {
+      e.studentId = '학번 형식이 올바르지 않습니다. (예: 20231234)';
+    }
+    if (!password) {
+      e.password = '비밀번호를 입력해주세요.';
+    }
+    return e;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!studentId.trim() || !password.trim()) {
-      setError('학번과 비밀번호를 입력해주세요.');
+    const v = validate();
+    setErrors(v);
+    setFormError('');
+    if (Object.keys(v).length) return;
+
+    setLoading(true);
+    const res = await login(studentId.trim(), password);
+    setLoading(false);
+
+    if (!res.ok) {
+      // AccountStore 가 반환한 에러를 학번 vs 비밀번호 구분해 inline 으로 매핑
+      if (res.error.includes('가입된 계정')) {
+        setErrors({ studentId: res.error });
+      } else if (res.error.includes('비밀번호')) {
+        setErrors({ password: res.error });
+      } else {
+        setFormError(res.error);
+      }
       return;
     }
-    setLoading(true);
-    setError('');
-    await new Promise(r => setTimeout(r, 700));
-    login(studentId.trim(), password);
     navigate(from, { replace: true });
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4" style={{ background: 'var(--bg)' }}>
-
-      {/* Card */}
       <div className="w-full max-w-[400px]">
 
         {/* Logo */}
         <div className="text-center mb-8">
-          <div
-            className="h-14 w-14 rounded-2xl accent-bg text-white flex items-center justify-center mx-auto mb-4
-                       shadow-[0_8px_24px_oklch(48%_0.12_268_/_0.30)]"
-          >
+          <div className="h-14 w-14 rounded-2xl accent-bg text-white flex items-center justify-center mx-auto mb-4
+                          shadow-[0_8px_24px_oklch(48%_0.12_268_/_0.30)]">
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M5 7h7M5 12h14M5 17h10"/>
             </svg>
@@ -48,22 +72,28 @@ export default function LoginPage() {
         </div>
 
         <div className="ssu-card p-7">
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="space-y-4">
 
+            {/* 학번 */}
             <div>
               <label className="text-[11px] uppercase tracking-[0.08em] text-zinc-500 font-medium block mb-1.5">
                 학번
               </label>
               <input
                 type="text"
+                inputMode="numeric"
                 value={studentId}
-                onChange={e => setStudentId(e.target.value)}
+                onChange={e => { setStudentId(e.target.value); if (errors.studentId) setErrors({ ...errors, studentId: undefined }); }}
                 placeholder="20231234"
                 autoFocus
-                className="ssu-input"
+                className={`ssu-input mono ${errors.studentId ? 'border-[var(--danger)]' : ''}`}
               />
+              {errors.studentId && (
+                <div className="text-[11.5px] text-[var(--danger)] mt-1">{errors.studentId}</div>
+              )}
             </div>
 
+            {/* 비밀번호 */}
             <div>
               <label className="text-[11px] uppercase tracking-[0.08em] text-zinc-500 font-medium block mb-1.5">
                 비밀번호
@@ -71,15 +101,19 @@ export default function LoginPage() {
               <input
                 type="password"
                 value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="LMS 비밀번호 입력"
-                className="ssu-input"
+                onChange={e => { setPassword(e.target.value); if (errors.password) setErrors({ ...errors, password: undefined }); }}
+                placeholder="가입 시 설정한 비밀번호"
+                className={`ssu-input ${errors.password ? 'border-[var(--danger)]' : ''}`}
               />
+              {errors.password && (
+                <div className="text-[11.5px] text-[var(--danger)] mt-1">{errors.password}</div>
+              )}
             </div>
 
-            {error && (
+            {/* 폼 일반 에러 */}
+            {formError && (
               <div className="text-[12px] text-[var(--danger)] bg-rose-50 border border-rose-200/70 rounded-lg px-3 py-2">
-                {error}
+                {formError}
               </div>
             )}
 
@@ -100,12 +134,13 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-5 pt-5 border-t border-[var(--line)] text-[11.5px] text-zinc-400 leading-relaxed flex items-start gap-1.5">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 mt-0.5">
-              <rect x="3" y="11" width="18" height="11" rx="2"/>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            </svg>
-            비밀번호는 LMS 인증에만 사용되며 서버에 평문으로 저장되지 않습니다.
+          {/* 데모 단계 안내 — 솔직하게 */}
+          <div className="mt-5 pt-5 border-t border-[var(--line)] text-[11.5px] text-zinc-500 leading-relaxed flex items-start gap-1.5">
+            <span className="shrink-0 mt-0.5">🚧</span>
+            <span>
+              데모 단계 — 계정 정보가 브라우저 <span className="mono">localStorage</span> 에 저장됩니다.
+              비밀번호는 SHA-256 으로 해시되지만, 실제 운영에서는 백엔드 인증으로 교체됩니다.
+            </span>
           </div>
         </div>
 

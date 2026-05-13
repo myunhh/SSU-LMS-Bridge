@@ -1,6 +1,6 @@
 /* Dashboard view */
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { COURSES, ASSIGNMENTS, NOTICES, MODULES, ACTIVITY, USER, SEMESTER, NOW } from '../data/mockData';
+import { useData } from '../data/DataStore';
 import Icon from './icons';
 
 /* ---------- helpers ---------- */
@@ -11,7 +11,7 @@ const fmtDateKR = (iso) => {
   const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
   return `${M}/${D} (${wd}) ${hh}:${mm}`;
 };
-const daysUntil = (iso) => {
+const daysUntilFor = (iso, NOW) => {
   const d = new Date(iso);
   const ms = d - NOW;
   if (ms < 0) return { label: '지남', kind: 'past', n: ms/86400000 };
@@ -22,11 +22,18 @@ const daysUntil = (iso) => {
   if (days <= 3)  return { label: `D-${days}`, kind: 'soon', n: days };
   return { label: `D-${days}`, kind: 'later', n: days };
 };
-const courseById = (id) => COURSES.find(c => c.id === id);
 const typeIcon = (t) => ({ report: Icon.File, code: Icon.Code, quiz: Icon.Quiz, essay: Icon.Essay, problem: Icon.File }[t] || Icon.File);
 
 /* ---------- Dashboard ---------- */
 function Dashboard({ openCourse, openChat }) {
+  const {
+    courses: COURSES, assignments: ASSIGNMENTS, notices: NOTICES, activity: ACTIVITY,
+    user: USER, semester: SEMESTER, now: NOW,
+    getCourseById, markNoticeRead, markAllNoticesRead, toggleAssignmentSubmit,
+    triggerSync, syncing,
+  } = useData();
+  const courseById = getCourseById;
+  const daysUntil = (iso) => daysUntilFor(iso, NOW);
   const upcoming = ASSIGNMENTS
     .filter(a => !a.submitted)
     .sort((a,b) => new Date(a.due) - new Date(b.due))
@@ -65,12 +72,22 @@ function Dashboard({ openCourse, openChat }) {
                 className="h-9 px-3.5 rounded-lg accent-bg text-white text-[13px] font-medium flex items-center gap-2 hover:opacity-90">
                 <Icon.Sparkles size={15}/> 비서에게 정리 받기
               </button>
-              <button className="h-9 px-3.5 rounded-lg border border-[var(--line)] bg-white text-[13px] flex items-center gap-2 hover:bg-zinc-50">
-                <Icon.Sync size={15}/> 지금 동기화
+              <button
+                onClick={triggerSync}
+                disabled={syncing}
+                className="h-9 px-3.5 rounded-lg border border-[var(--line)] bg-white text-[13px] flex items-center gap-2 hover:bg-zinc-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Icon.Sync size={15} className={syncing ? 'animate-spin' : ''}/>
+                {syncing ? '동기화 중…' : '지금 동기화'}
               </button>
-              <button className="h-9 px-3.5 rounded-lg border border-[var(--line)] bg-white text-[13px] flex items-center gap-2 hover:bg-zinc-50">
+              <a
+                href="https://www.notion.so"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="h-9 px-3.5 rounded-lg border border-[var(--line)] bg-white text-[13px] flex items-center gap-2 hover:bg-zinc-50"
+              >
                 <Icon.External size={14}/> Notion에서 열기
-              </button>
+              </a>
             </div>
           </div>
           <div className="hidden md:grid grid-cols-3 gap-3 w-[420px]">
@@ -122,8 +139,12 @@ function Dashboard({ openCourse, openChat }) {
                     <div className="font-medium">{d.label}</div>
                     <div className="text-zinc-400 text-[11px]">{fmtDateKR(a.due)}</div>
                   </div>
-                  <button className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-zinc-700">
-                    <Icon.Chev size={16}/>
+                  <button
+                    onClick={() => toggleAssignmentSubmit(a.id)}
+                    className="opacity-0 group-hover:opacity-100 text-[11px] mono px-2 py-1 rounded border border-[var(--line)] hover:bg-white text-zinc-600"
+                    title="제출 완료로 표시"
+                  >
+                    제출
                   </button>
                 </div>
               );
@@ -143,13 +164,20 @@ function Dashboard({ openCourse, openChat }) {
                 <div className="text-[14.5px] font-semibold">최근 공지</div>
                 <div className="text-[11.5px] text-zinc-500">{noticesUnread}건 안 읽음</div>
               </div>
-              <button className="text-[12px] text-zinc-500 hover:text-zinc-900">모두 읽음</button>
+              <button
+                onClick={markAllNoticesRead}
+                className="text-[12px] text-zinc-500 hover:text-zinc-900"
+              >모두 읽음</button>
             </header>
             <div className="border-t border-[var(--line)]">
               {NOTICES.slice(0, 5).map(n => {
                 const c = courseById(n.course);
                 return (
-                  <div key={n.id} className="px-5 py-2.5 border-b border-[var(--line-2)] last:border-0 flex items-start gap-3 hover:bg-[var(--line-2)]/40">
+                  <button
+                    key={n.id}
+                    onClick={() => { markNoticeRead(n.id); openCourse(n.course); }}
+                    className="w-full text-left px-5 py-2.5 border-b border-[var(--line-2)] last:border-0 flex items-start gap-3 hover:bg-[var(--line-2)]/40"
+                  >
                     <div className="pt-1.5">
                       {n.unread
                         ? <span className="h-1.5 w-1.5 rounded-full block" style={{ background: 'var(--accent)' }}/>
@@ -164,7 +192,7 @@ function Dashboard({ openCourse, openChat }) {
                         {c.code} · {fmtDateKR(n.date)}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>

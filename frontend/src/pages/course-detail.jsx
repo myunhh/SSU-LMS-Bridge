@@ -1,13 +1,13 @@
 /* Course Detail view */
 import { useState as uS, useEffect as uE, useRef as uR, useMemo as uM } from 'react';
-import { COURSES as CS, ASSIGNMENTS as AS, NOTICES as NS, MODULES as MS, NOW } from '../data/mockData';
+import { useData } from '../data/DataStore';
 import I2 from './icons';
 
 const fmt2 = (iso) => {
   const d = new Date(iso);
   return `${d.getMonth()+1}/${d.getDate()} (${'일월화수목금토'[d.getDay()]}) ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 };
-const dU = (iso) => {
+const dUFor = (iso, NOW) => {
   const ms = new Date(iso) - NOW;
   if (ms < 0) return { label: '지남', tone: 'text-zinc-400' };
   const days = Math.floor(ms/86400000);
@@ -18,11 +18,18 @@ const dU = (iso) => {
 
 /* ============== Course Detail ============== */
 function CourseDetail({ courseId, openChat }) {
-  const c = CS.find(x => x.id === courseId);
+  const {
+    now: NOW, getCourseById, getAssignmentsByCourse, getNoticesByCourse, getModulesByCourse,
+    markNoticeRead, toggleAssignmentSubmit,
+  } = useData();
+  const c = getCourseById(courseId);
   const [tab, setTab] = uS('materials');
-  const mods = MS[courseId] || MS[3];
-  const cAssigns = AS.filter(a => a.course === courseId);
-  const cNotices = NS.filter(n => n.course === courseId);
+  const mods = getModulesByCourse(courseId);
+  const cAssigns = getAssignmentsByCourse(courseId);
+  const cNotices = getNoticesByCourse(courseId);
+  const dU = (iso) => dUFor(iso, NOW);
+
+  if (!c) return <div className="px-7 py-6 text-zinc-500">강의를 찾을 수 없습니다.</div>;
 
   const Tab = ({ id, label, count }) => (
     <button onClick={() => setTab(id)}
@@ -60,9 +67,14 @@ function CourseDetail({ courseId, openChat }) {
               className="h-9 px-3.5 rounded-lg accent-bg text-white text-[13px] flex items-center gap-2 hover:opacity-90">
               <I2.Sparkles size={15}/> 이 강의에 대해 질문
             </button>
-            <button className="h-8 px-3 rounded-lg border border-[var(--line)] bg-white text-[12.5px] flex items-center gap-2 hover:bg-zinc-50">
+            <a
+              href={`https://canvas.ssu.ac.kr/learningx/dashboard?course_id=${courseId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="h-8 px-3 rounded-lg border border-[var(--line)] bg-white text-[12.5px] flex items-center gap-2 hover:bg-zinc-50"
+            >
               <I2.External size={13}/> LMS에서 열기
-            </button>
+            </a>
           </div>
         </div>
       </div>
@@ -99,10 +111,20 @@ function CourseDetail({ courseId, openChat }) {
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button className="h-8 px-2.5 text-[12px] rounded-md border border-[var(--line)] hover:bg-zinc-50 flex items-center gap-1">
+                  <a
+                    href={m.locked ? undefined : `https://canvas.ssu.ac.kr/learningx/dashboard?course_id=${courseId}&week=${m.week}`}
+                    target={m.locked ? undefined : '_blank'}
+                    rel="noopener noreferrer"
+                    aria-disabled={m.locked}
+                    onClick={(e) => { if (m.locked) e.preventDefault(); }}
+                    className={`h-8 px-2.5 text-[12px] rounded-md border border-[var(--line)] flex items-center gap-1 ${m.locked ? 'cursor-not-allowed opacity-50' : 'hover:bg-zinc-50'}`}
+                  >
                     <I2.File size={13}/> 자료
-                  </button>
-                  <button className="h-8 w-8 rounded-md border border-[var(--line)] hover:bg-zinc-50 flex items-center justify-center text-zinc-500">
+                  </a>
+                  <button
+                    disabled={m.locked}
+                    className="h-8 w-8 rounded-md border border-[var(--line)] hover:bg-zinc-50 flex items-center justify-center text-zinc-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                     <I2.Chev size={14}/>
                   </button>
                 </div>
@@ -113,8 +135,15 @@ function CourseDetail({ courseId, openChat }) {
 
         {tab === 'notices' && (
           <div className="divide-y divide-[var(--line-2)]">
+            {cNotices.length === 0 && (
+              <div className="px-5 py-8 text-center text-[12.5px] text-zinc-500">공지가 없습니다.</div>
+            )}
             {cNotices.map(n => (
-              <div key={n.id} className="px-5 py-3 flex items-start gap-3 hover:bg-[var(--line-2)]/40">
+              <button
+                key={n.id}
+                onClick={() => markNoticeRead(n.id)}
+                className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-[var(--line-2)]/40"
+              >
                 {n.unread
                   ? <span className="mt-1.5 h-1.5 w-1.5 rounded-full" style={{ background: 'var(--accent)' }}/>
                   : <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-zinc-300"/>}
@@ -125,21 +154,28 @@ function CourseDetail({ courseId, openChat }) {
                   </div>
                   <div className="text-[11px] text-zinc-500 mono mt-0.5">{fmt2(n.date)}</div>
                 </div>
-                <button className="text-zinc-400 hover:text-zinc-700"><I2.Chev size={15}/></button>
-              </div>
+                <span className="text-zinc-400"><I2.Chev size={15}/></span>
+              </button>
             ))}
           </div>
         )}
 
         {tab === 'assignments' && (
           <div className="divide-y divide-[var(--line-2)]">
+            {cAssigns.length === 0 && (
+              <div className="px-5 py-8 text-center text-[12.5px] text-zinc-500">과제가 없습니다.</div>
+            )}
             {cAssigns.map(a => {
               const d = dU(a.due);
               return (
                 <div key={a.id} className="px-5 py-3 flex items-center gap-4">
-                  <div className={`h-8 w-8 rounded-md flex items-center justify-center ${a.submitted ? 'bg-emerald-50 text-[var(--ok)]' : 'bg-zinc-50 text-zinc-500'}`}>
+                  <button
+                    onClick={() => toggleAssignmentSubmit(a.id)}
+                    className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${a.submitted ? 'bg-emerald-50 text-[var(--ok)] hover:bg-emerald-100' : 'bg-zinc-50 text-zinc-500 hover:bg-zinc-100'}`}
+                    title={a.submitted ? '제출 취소' : '제출 완료로 표시'}
+                  >
                     {a.submitted ? <I2.Check size={15}/> : <I2.File size={15}/>}
-                  </div>
+                  </button>
                   <div className="flex-1 min-w-0">
                     <div className="text-[13.5px] font-medium truncate">{a.title}</div>
                     <div className="text-[11px] text-zinc-500 mono mt-0.5">비중 {a.weight}% · {fmt2(a.due)}</div>

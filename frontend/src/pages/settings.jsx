@@ -1,7 +1,7 @@
 /* Settings view */
 import { useState as stS } from 'react';
 import Ist from './icons';
-import { USER, SEMESTER } from '../data/mockData';
+import { useData } from '../data/DataStore';
 import { SETTINGS_SECTIONS, APP_BRAND } from '../data/uiConfig';
 
 /* ============== Settings ============== */
@@ -82,6 +82,7 @@ const Row = ({ label, sub, children }) => (
 );
 
 function AccountSection() {
+  const { user: USER, semester: SEMESTER } = useData();
   return (
     <>
       <SectionCard title="프로필" sub="LMS 계정과 별개로 앱 안에서만 사용합니다."
@@ -113,7 +114,7 @@ function AccountSection() {
       </SectionCard>
 
       <SectionCard title="LMS 연동" sub="canvas.ssu.ac.kr 자격 증명 — 로컬에 암호화 저장">
-        <Row label="학번"><input defaultValue="20231234" className="ssu-input mono"/></Row>
+        <Row label="학번"><input key={USER.studentId} defaultValue={USER.studentId} className="ssu-input mono"/></Row>
         <Row label="비밀번호"><input type="password" defaultValue="••••••••••" className="ssu-input mono"/></Row>
         <Row label="세션 캐시" sub="storage_state.json — 재사용 시 0.5초">
           <div className="flex items-center gap-2">
@@ -137,6 +138,7 @@ function AccountSection() {
 }
 
 function NotificationsSection() {
+  const { courses } = useData();
   return (
     <>
       <SectionCard title="이벤트별 알림" sub="알림은 브라우저 푸시 + (선택) Gmail로 전송됩니다.">
@@ -171,7 +173,7 @@ function NotificationsSection() {
         </Row>
         <Row label="과목별 음소거">
           <div className="flex flex-wrap gap-1.5">
-            {window.SSU.COURSES.map(c => (
+            {courses.map(c => (
               <button key={c.id}
                 className="text-[11.5px] px-2 py-1 rounded-md border border-[var(--line)] hover:bg-zinc-50 flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-sm" style={{background:c.color}}/>

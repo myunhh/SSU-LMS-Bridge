@@ -1,12 +1,14 @@
 /* Connectors view */
 import { useState as cnS } from 'react';
-import { CONNECTORS as CN } from '../data/mockData';
+import { useData } from '../data/DataStore';
 import Icn from './icons';
 
 /* ============== Connectors ============== */
 function ConnectorsView() {
+  const { connectors: CN, toggleConnector } = useData();
   const [selected, setSelected] = cnS('llm');
   const conn = CN.find(c => c.id === selected) || CN[0];
+  const connectedCount = CN.filter(c => c.status === 'connected').length;
 
   const Logo = ({ id }) => {
     const cls = "h-9 w-9 rounded-xl flex items-center justify-center";
@@ -25,7 +27,7 @@ function ConnectorsView() {
           <header className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-[var(--line)]">
             <div>
               <div className="text-[14.5px] font-semibold">커넥터</div>
-              <div className="text-[11.5px] text-zinc-500">5개 중 4개 연결됨 · 마지막 동기화 7분 전</div>
+              <div className="text-[11.5px] text-zinc-500">{CN.length}개 중 {connectedCount}개 연결됨</div>
             </div>
             <button className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px] flex items-center gap-1.5 hover:bg-zinc-50">
               <Icn.Plus size={13}/> 추가
@@ -159,8 +161,11 @@ function ConnectorsView() {
             <div className="mt-5 pt-4 border-t border-[var(--line)] flex items-center justify-between">
               <div className="text-[11.5px] mono text-zinc-500">마지막 점검 · {conn.last}</div>
               <div className="flex items-center gap-1.5">
-                <button className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px] flex items-center gap-1.5 hover:bg-zinc-50">
-                  <Icn.Sync size={13}/> 연결 테스트
+                <button
+                  onClick={() => toggleConnector(conn.id)}
+                  className={`h-8 px-3 rounded-md border text-[12px] flex items-center gap-1.5 ${conn.status === 'connected' ? 'border-[var(--line)] bg-white hover:bg-zinc-50 text-[var(--danger)]' : 'border-[var(--line)] bg-white hover:bg-zinc-50'}`}
+                >
+                  {conn.status === 'connected' ? '연결 해제' : '연결하기'}
                 </button>
                 <button className="h-8 px-3 rounded-md accent-bg text-white text-[12px]">저장</button>
               </div>

@@ -3,27 +3,61 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import { SIGNUP_STEPS as STEPS, SIGNUP_INITIAL as INITIAL } from '../data/uiConfig';
+import { STUDENT_ID_REGEX } from '../auth/AccountStore';
+
+// 비밀번호: 8자 이상, 영문/숫자 1개 이상씩 포함
+const PASSWORD_RULE = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
 
 export default function SignupPage() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(INITIAL);
   const [errors, setErrors] = useState({});
-  const { login } = useAuth();
+  const [submitting, setSubmitting] = useState(false);
+  const { signup } = useAuth();
   const navigate = useNavigate();
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }));
+    if (errors[k]) setErrors(e => ({ ...e, [k]: undefined }));
+  };
 
+  // ── 단계별 검증 ────────────────────────────────────────────────────────────
   const validate = (s) => {
     const e = {};
     if (s === 1) {
-      if (!form.name.trim()) e.name = '이름을 입력해주세요.';
-      if (!form.studentId.trim()) e.studentId = '학번을 입력해주세요.';
-      if (form.password.length < 6) e.password = '비밀번호는 6자 이상이어야 합니다.';
-      if (form.password !== form.passwordConfirm) e.passwordConfirm = '비밀번호가 일치하지 않습니다.';
+      if (!form.name.trim()) {
+        e.name = '이름을 입력해주세요.';
+      } else if (form.name.trim().length < 2) {
+        e.name = '이름은 2자 이상이어야 합니다.';
+      }
+
+      if (!form.studentId.trim()) {
+        e.studentId = '학번을 입력해주세요.';
+      } else if (!STUDENT_ID_REGEX.test(form.studentId.trim())) {
+        e.studentId = '학번 형식이 올바르지 않습니다. (예: 20231234)';
+      } else {
+        // 중복 가입 차단 (로컬 확인)
+        try {
+          const list = JSON.parse(localStorage.getItem('ssu_accounts') || '[]');
+          if (list.some(a => a.studentId === form.studentId.trim())) {
+            e.studentId = '이미 가입된 학번입니다.';
+          }
+        } catch {}
+      }
+
+      if (!form.password) {
+        e.password = '비밀번호를 입력해주세요.';
+      } else if (!PASSWORD_RULE.test(form.password)) {
+        e.password = '비밀번호는 8자 이상, 영문과 숫자를 모두 포함해야 합니다.';
+      }
+
+      if (form.password !== form.passwordConfirm) {
+        e.passwordConfirm = '비밀번호가 일치하지 않습니다.';
+      }
     }
     if (s === 2) {
       if (!form.lmsId.trim()) e.lmsId = 'LMS 아이디를 입력해주세요.';
-      if (!form.lmsPassword) e.lmsPassword = 'LMS 비밀번호를 입력해주세요.';
+      if (!form.lmsPassword)  e.lmsPassword = 'LMS 비밀번호를 입력해주세요.';
     }
     if (s === 5) {
       if (!form.claudeApiKey.trim()) e.claudeApiKey = 'API 키를 입력해주세요.';
@@ -31,12 +65,29 @@ export default function SignupPage() {
     return e;
   };
 
-  const next = () => {
+  const next = async () => {
     const e = validate(step);
     if (Object.keys(e).length) { setErrors(e); return; }
     setErrors({});
+
+    // 마지막 단계가 아니면 다음으로
     if (step < 5) { setStep(s => s + 1); return; }
-    login(form.studentId);
+
+    // 마지막 단계 — 실제 가입 처리
+    setSubmitting(true);
+    const res = await signup({
+      ...form,
+      name:      form.name.trim(),
+      studentId: form.studentId.trim(),
+    });
+    setSubmitting(false);
+
+    if (!res.ok) {
+      // 가입 실패 — 보통 학번 관련 에러이므로 1단계로 돌려보냄
+      setErrors({ submit: res.error });
+      setStep(1);
+      return;
+    }
     navigate('/dashboard', { replace: true });
   };
 
@@ -117,8 +168,8 @@ export default function SignupPage() {
               <Field label="학번" error={errors.studentId}>
                 <input className="ssu-input mono" value={form.studentId} onChange={e => set('studentId', e.target.value)} placeholder="20231234"/>
               </Field>
-              <Field label="비밀번호" error={errors.password}>
-                <input type="password" className="ssu-input" value={form.password} onChange={e => set('password', e.target.value)} placeholder="6자 이상"/>
+              <Field label="비밀번호" error={errors.password} hint="8자 이상, 영문과 숫자 포함">
+                <input type="password" className="ssu-input" value={form.password} onChange={e => set('password', e.target.value)} placeholder="••••••••"/>
               </Field>
               <Field label="비밀번호 확인" error={errors.passwordConfirm}>
                 <input type="password" className="ssu-input" value={form.passwordConfirm} onChange={e => set('passwordConfirm', e.target.value)} placeholder="비밀번호 재입력"/>
@@ -190,22 +241,34 @@ export default function SignupPage() {
             </>}
           </div>
 
+          {/* 가입 단계 전체에서 발생한 일반 에러 */}
+          {errors.submit && (
+            <div className="mt-4 text-[12px] text-[var(--danger)] bg-rose-50 border border-rose-200/70 rounded-lg px-3 py-2">
+              {errors.submit}
+            </div>
+          )}
+
           {/* Buttons */}
           <div className="flex items-center gap-2.5 mt-6 pt-5 border-t border-[var(--line)]">
             {step > 1 ? (
-              <button onClick={back}
-                className="h-[42px] px-5 rounded-lg border border-[var(--line)] bg-white text-[13px] text-zinc-700 hover:bg-zinc-50 shrink-0">
+              <button onClick={back} disabled={submitting}
+                className="h-[42px] px-5 rounded-lg border border-[var(--line)] bg-white text-[13px] text-zinc-700 hover:bg-zinc-50 shrink-0 disabled:opacity-60">
                 ← 이전
               </button>
             ) : (
-              <button onClick={() => navigate('/login')}
-                className="h-[42px] px-5 rounded-lg border border-[var(--line)] bg-white text-[13px] text-zinc-700 hover:bg-zinc-50 shrink-0">
+              <button onClick={() => navigate('/login')} disabled={submitting}
+                className="h-[42px] px-5 rounded-lg border border-[var(--line)] bg-white text-[13px] text-zinc-700 hover:bg-zinc-50 shrink-0 disabled:opacity-60">
                 로그인
               </button>
             )}
-            <button onClick={next}
-              className="flex-1 h-[42px] rounded-lg accent-bg text-white text-[13.5px] font-medium hover:opacity-90">
-              {step === 5 ? '설정 완료 →' : '다음 →'}
+            <button onClick={next} disabled={submitting}
+              className="flex-1 h-[42px] rounded-lg accent-bg text-white text-[13.5px] font-medium hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2">
+              {submitting && (
+                <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M21 12a9 9 0 1 1-6.22-8.56"/>
+                </svg>
+              )}
+              {step === 5 ? (submitting ? '가입 중…' : '설정 완료 →') : '다음 →'}
             </button>
           </div>
         </div>

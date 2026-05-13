@@ -1,10 +1,10 @@
 /* Chat / LLM Assistant view */
 import { useState as chS, useEffect as chE, useRef as chR } from 'react';
-import { COURSES as chCS, ASSIGNMENTS as chAS, CHAT_SEED, SUGGESTIONS, CONVERSATIONS, NOW } from '../data/mockData';
+import { useData } from '../data/DataStore';
 import { CHAT_MODEL_LABEL, CHAT_FOOTER_NOTE, CHAT_RAG_ENABLED } from '../data/uiConfig';
 import Ich from './icons';
 
-const dU = (iso) => {
+const dUFor = (iso, NOW) => {
   const ms = new Date(iso) - NOW;
   if (ms < 0) return { label: '지남', tone: 'text-zinc-400' };
   const days = Math.floor(ms / 86400000);
@@ -15,7 +15,14 @@ const dU = (iso) => {
 
 /* ============== Chat ============== */
 function ChatView() {
-  const [msgs, setMsgs] = chS(CHAT_SEED);
+  const {
+    courses: chCS, assignments: chAS, chatSeed, suggestions: SUGGESTIONS,
+    conversations: CONVERSATIONS, now: NOW,
+    appendChatMessage, startNewConversation, selectConversation,
+  } = useData();
+  const dU = (iso) => dUFor(iso, NOW);
+
+  const [msgs, setMsgs] = chS(chatSeed);
   const [input, setInput] = chS('');
   const [streaming, setStreaming] = chS(false);
   const scrollRef = chR(null);
@@ -43,13 +50,20 @@ function ChatView() {
       {/* Conversation list */}
       <aside className="w-[260px] shrink-0 border-r border-[var(--line)] bg-[#faf9f6] flex flex-col">
         <div className="p-3 border-b border-[var(--line)]">
-          <button className="w-full h-9 rounded-lg accent-bg text-white text-[12.5px] font-medium flex items-center justify-center gap-2 hover:opacity-90">
+          <button
+            onClick={() => { startNewConversation(); setMsgs([]); }}
+            className="w-full h-9 rounded-lg accent-bg text-white text-[12.5px] font-medium flex items-center justify-center gap-2 hover:opacity-90"
+          >
             <Ich.Plus size={14}/> 새 대화
           </button>
         </div>
         <div className="flex-1 overflow-y-auto scroll-hide p-2 space-y-1">
           {CONVERSATIONS.map((c) => (
-            <button key={c.id} className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] ${c.active ? 'bg-white border border-[var(--line)]' : 'hover:bg-white/60'}`}>
+            <button
+              key={c.id}
+              onClick={() => selectConversation(c.id)}
+              className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] ${c.active ? 'bg-white border border-[var(--line)]' : 'hover:bg-white/60'}`}
+            >
               <div className="font-medium truncate">{c.title}</div>
               <div className="text-[10.5px] mono text-zinc-500 truncate">{c.sub}</div>
             </button>

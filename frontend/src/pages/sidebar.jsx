@@ -1,11 +1,12 @@
 /* Sidebar + Topbar */
 import React from 'react';
 import Icon from './icons';
-import { COURSES, NOTIFICATIONS } from '../data/mockData';
+import { useData } from '../data/DataStore';
 import { NAV_ITEMS, APP_BRAND } from '../data/uiConfig';
 
 /* ---------- Sidebar ---------- */
 function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) {
+  const { courses: COURSES } = useData();
   const NavBtn = ({ id, label, IconCmp, badge }) => {
     const active = route === id;
     return (
@@ -72,11 +73,11 @@ function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) 
       <div className="px-3 py-3 border-t border-[var(--line)]">
         <div className="ssu-card px-3 py-2.5 flex items-center gap-2.5">
           <div className="h-7 w-7 rounded-full bg-zinc-200 flex items-center justify-center text-[11px] mono text-zinc-700 shrink-0">
-            {user?.studentId?.slice(-2) ?? 'ME'}
+            {user?.name ? user.name.slice(0, 2) : (user?.studentId?.slice(-2) ?? 'ME')}
           </div>
           <div className="leading-tight flex-1 min-w-0">
-            <div className="text-[12.5px] font-medium truncate">학번 {user?.studentId ?? '—'}</div>
-            <div className="text-[10.5px] text-zinc-500 mono truncate">{user?.studentId}@soongsil.ac.kr</div>
+            <div className="text-[12.5px] font-medium truncate">{user?.name ?? `학번 ${user?.studentId ?? '—'}`}</div>
+            <div className="text-[10.5px] text-zinc-500 mono truncate">{user?.email ?? `${user?.studentId ?? ''}@soongsil.ac.kr`}</div>
           </div>
           <button onClick={() => setRoute('settings')} className={`${route==='settings' ? 'text-zinc-900' : 'text-zinc-400 hover:text-zinc-700'}`} title="설정">
             <Icon.Settings size={15} />
@@ -98,8 +99,8 @@ function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) 
 
 /* ---------- Notifications popover ---------- */
 function NotificationsPopover({ onClose }) {
+  const { notifications: items, markNotificationRead, markAllNotificationsRead } = useData();
   const [tab, setTab] = React.useState('all');
-  const [items, setItems] = React.useState(NOTIFICATIONS);
   const ref = React.useRef(null);
 
   React.useEffect(() => {
@@ -115,8 +116,8 @@ function NotificationsPopover({ onClose }) {
                   : items;
   const unreadCount = items.filter(n => n.unread).length;
 
-  const markRead = (id) => setItems(items.map(n => n.id === id ? { ...n, unread: false } : n));
-  const markAll = () => setItems(items.map(n => ({ ...n, unread: false })));
+  const markRead = markNotificationRead;
+  const markAll  = markAllNotificationsRead;
 
   const KindBadge = ({ kind }) => {
     const map = {
@@ -146,7 +147,7 @@ function NotificationsPopover({ onClose }) {
             {unreadCount} 읽지 않음
           </span>
           <div className="flex-1"/>
-          <button onClick={markAll}
+          <button onClick={() => { markAll(); onClose(); }}
             className="text-[11.5px] text-zinc-500 hover:text-zinc-800">모두 읽음</button>
         </div>
         <div className="mt-2.5 flex gap-1">
@@ -165,7 +166,7 @@ function NotificationsPopover({ onClose }) {
           <div className="px-4 py-10 text-center text-[12px] text-zinc-400">알림이 없습니다</div>
         )}
         {filtered.map(n => (
-          <button key={n.id} onClick={() => markRead(n.id)}
+          <button key={n.id} onClick={() => { markRead(n.id); onClose(); }}
             className={`w-full text-left px-4 py-3 border-b border-[var(--line-2)] flex gap-3 transition-colors
               ${n.unread ? 'bg-[var(--accent-soft)]/35 hover:bg-[var(--accent-soft)]/55' : 'hover:bg-zinc-50'}`}>
             <div className="relative shrink-0 mt-0.5">
@@ -201,6 +202,8 @@ function NotificationsPopover({ onClose }) {
 
 /* ---------- Topbar ---------- */
 function Topbar({ title, sub, right }) {
+  const { notifications } = useData();
+  const unread = notifications.filter(n => n.unread).length;
   const [open, setOpen] = React.useState(false);
   return (
     <div className="h-[58px] border-b border-[var(--line)] bg-[var(--bg)]/85 backdrop-blur sticky top-0 z-10
@@ -214,7 +217,9 @@ function Topbar({ title, sub, right }) {
         className={`h-8 w-8 rounded-md flex items-center justify-center relative transition-colors
           ${open ? 'bg-white border border-[var(--line)] text-zinc-900' : 'hover:bg-white/70 text-zinc-500'}`}>
         <Icon.Bell size={17} />
-        <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--danger)]"></span>
+        {unread > 0 && (
+          <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--danger)]"></span>
+        )}
       </button>
       {open && <NotificationsPopover onClose={() => setOpen(false)} />}
     </div>
