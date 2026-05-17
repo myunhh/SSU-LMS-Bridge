@@ -1,0 +1,6 @@
+playwright>=1.40.0
+
+# FastAPI (옵션)
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
