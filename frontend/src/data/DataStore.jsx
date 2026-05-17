@@ -10,8 +10,9 @@
 //   - 초기 로드는 useEffect 안에서 GET 요청
 //   - 페이지 코드는 한 줄도 바꿀 필요 없음 (인터페이스 동일)
 // ──────────────────────────────────────────────────────────────────────────────
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import * as seed from './mockData';
+import * as LmsAuthApi from '../api/lmsAuth';
 
 const DataContext = createContext(null);
 
@@ -46,6 +47,16 @@ export function DataProvider({ children, onToast, authUser }) {
   // 동기화 진행 상태 (Topbar 버튼이 사용)
   const [syncing, setSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState(null);
+
+  // ── LMS 세션 상태 ────────────────────────────────────────────────────────
+  // { active, userInfo, savedAt, nextRefreshIn } | null
+  const [lmsSession, setLmsSession] = useState(null);
+  const [lmsBusy, setLmsBusy] = useState(false);   // 로그인 / 갱신 중
+
+  // 앱 시작 시 한 번 세션 상태 조회
+  useEffect(() => {
+    LmsAuthApi.getLmsSessionStatus().then(s => setLmsSession(s));
+  }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
   // 액션: 알림
@@ -110,6 +121,70 @@ export function DataProvider({ children, onToast, authUser }) {
   }, [syncing, courses.length, onToast]);
 
   // ──────────────────────────────────────────────────────────────────────────
+  // 액션: LMS 세션 (Playwright SSO)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** LMS 신규 로그인 (학번 + 비번). 회원가입 / Connectors 페이지에서 호출 */
+  const loginLms = useCallback(async (studentId, password) => {
+    setLmsBusy(true);
+    try {
+      const res = await LmsAuthApi.lmsLogin(studentId, password);
+      if (res.ok) {
+        setLmsSession({
+          active: true,
+          userInfo: res.userInfo,
+          savedAt: res.savedAt,
+        });
+        setActivity(act => [
+          { t: '방금 전', text: 'LMS 로그인 성공', kind: 'auth', meta: `학번 ${studentId}` },
+          ...act,
+        ]);
+        onToast?.({ kind: 'success', text: 'LMS 세션이 발급되었습니다.' });
+      } else {
+        onToast?.({ kind: 'error', text: res.error || 'LMS 로그인 실패' });
+      }
+      return res;
+    } finally {
+      setLmsBusy(false);
+    }
+  }, [onToast]);
+
+  /** 세션 즉시 갱신 (사용자가 "재발급" 버튼 클릭) */
+  const refreshLms = useCallback(async () => {
+    setLmsBusy(true);
+    try {
+      const res = await LmsAuthApi.refreshLmsSession();
+      if (res.ok) {
+        setLmsSession(s => s ? { ...s, savedAt: res.savedAt } : s);
+        setActivity(act => [
+          { t: '방금 전', text: '세션 갱신 — 쿠키 재발급', kind: 'auth', meta: 'load_session() · 0.5s' },
+          ...act,
+        ]);
+        onToast?.({ kind: 'success', text: 'LMS 세션을 갱신했습니다.' });
+      } else {
+        onToast?.({ kind: 'error', text: res.error || '갱신 실패' });
+      }
+      return res;
+    } finally {
+      setLmsBusy(false);
+    }
+  }, [onToast]);
+
+  /** 세션 메타 다시 조회 (다른 탭이 갱신한 경우 등) */
+  const reloadLmsSession = useCallback(async () => {
+    const s = await LmsAuthApi.getLmsSessionStatus();
+    setLmsSession(s);
+    return s;
+  }, []);
+
+  /** LMS 세션만 끊기 (회원 로그아웃과 별개) */
+  const clearLms = useCallback(async () => {
+    await LmsAuthApi.clearLmsSession();
+    setLmsSession({ active: false });
+    onToast?.({ kind: 'info', text: 'LMS 세션을 끊었습니다.' });
+  }, [onToast]);
+
+  // ──────────────────────────────────────────────────────────────────────────
   // 액션: 채팅
   // ──────────────────────────────────────────────────────────────────────────
   const appendChatMessage = useCallback((msg) => {
@@ -161,6 +236,9 @@ export function DataProvider({ children, onToast, authUser }) {
     conversations, chatSeed, connectors,
     // 동기화 상태
     syncing, lastSyncAt,
+    // LMS 세션 상태 + 액션
+    lmsSession, lmsBusy,
+    loginLms, refreshLms, reloadLmsSession, clearLms,
     // 액션
     markNotificationRead, markAllNotificationsRead,
     markNoticeRead, markAllNoticesRead,

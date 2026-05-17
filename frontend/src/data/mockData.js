@@ -103,7 +103,7 @@ const MODULES = {
 const ACTIVITY = [
   { t: '방금 전', text: 'Vault에 강의자료 4개 다운로드',     kind: 'sync', meta: '딥러닝과응용 · Week 11' },
   { t: '7분 전',  text: 'Notion DB 동기화 완료',             kind: 'sync', meta: '공지 3건 · 과제 1건 새로 추가' },
-  { t: '1시간 전', text: '세션 갱신 — Bearer 토큰 재발급',   kind: 'auth', meta: 'storage_state.json · 0.5s' },
+  { t: '1시간 전', text: '세션 갱신 — Playwright 쿠키 연장',  kind: 'auth', meta: 'ssu_lms_session.json · 0.5s' },
   { t: '오늘 04:00', text: '예약 동기화 실행',                kind: 'cron', meta: 'APScheduler · 23/23 성공' },
   { t: '어제',    text: 'AVL Tree 구현 제출 완료',           kind: 'submit', meta: '자료구조 · 만점' },
 ];

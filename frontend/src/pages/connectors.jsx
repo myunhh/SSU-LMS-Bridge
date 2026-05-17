@@ -1,14 +1,23 @@
 /* Connectors view */
 import { useState as cnS } from 'react';
 import { useData } from '../data/DataStore';
+import { formatSessionExpiry, formatSessionAge } from '../api/lmsAuth';
 import Icn from './icons';
 
 /* ============== Connectors ============== */
 function ConnectorsView() {
-  const { connectors: CN, toggleConnector } = useData();
+  const {
+    connectors: CN, toggleConnector,
+    user, lmsSession, lmsBusy, loginLms, refreshLms,
+  } = useData();
   const [selected, setSelected] = cnS('llm');
+  const [lmsForm, setLmsForm] = cnS({ studentId: user?.studentId || '', password: '' });
   const conn = CN.find(c => c.id === selected) || CN[0];
-  const connectedCount = CN.filter(c => c.status === 'connected').length;
+  const lmsActive = !!lmsSession?.active;
+  // LMS 카운트는 lmsSession 실제 상태로 보정 (mockData 의 connected 값 무시)
+  const connectedCount = CN.filter(c =>
+    c.id === 'lms' ? lmsActive : c.status === 'connected'
+  ).length;
 
   const Logo = ({ id }) => {
     const cls = "h-9 w-9 rounded-xl flex items-center justify-center";
@@ -36,6 +45,9 @@ function ConnectorsView() {
           <div className="divide-y divide-[var(--line-2)]">
             {CN.map(c => {
               const active = selected === c.id;
+              // LMS 는 실제 lmsSession 상태로 덮어씀
+              const status = c.id === 'lms' ? (lmsActive ? 'connected' : 'disconnected') : c.status;
+              const last   = c.id === 'lms' && lmsActive ? formatSessionAge(lmsSession.savedAt) : c.last;
               return (
                 <button key={c.id} onClick={() => setSelected(c.id)}
                   className={`w-full px-5 py-3.5 flex items-center gap-3.5 text-left ${active ? 'bg-[var(--accent-soft)]/50' : 'hover:bg-[var(--line-2)]/40'}`}>
@@ -44,18 +56,18 @@ function ConnectorsView() {
                     <div className="flex items-center gap-2">
                       <span className="text-[13.5px] font-medium">{c.name}</span>
                       <span className={`text-[10.5px] mono px-1.5 py-0.5 rounded-md flex items-center gap-1
-                        ${c.status === 'connected'
+                        ${status === 'connected'
                           ? 'bg-emerald-50 text-[var(--ok)]'
                           : 'bg-zinc-100 text-zinc-500'}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${c.status==='connected' ? 'bg-[var(--ok)]' : 'bg-zinc-400'}`}/>
-                        {c.status === 'connected' ? '연결됨' : '미연결'}
+                        <span className={`h-1.5 w-1.5 rounded-full ${status==='connected' ? 'bg-[var(--ok)]' : 'bg-zinc-400'}`}/>
+                        {status === 'connected' ? '연결됨' : '미연결'}
                       </span>
                     </div>
                     <div className="text-[11.5px] text-zinc-500 mt-0.5 mono truncate">{c.kind} · {c.host}</div>
                   </div>
                   <div className="text-right hidden sm:block">
                     <div className="text-[11.5px] text-zinc-700">{c.meta}</div>
-                    <div className="text-[10.5px] mono text-zinc-400 mt-0.5">{c.last}</div>
+                    <div className="text-[10.5px] mono text-zinc-400 mt-0.5">{last}</div>
                   </div>
                   <Icn.Chev size={15} className="text-zinc-400 ml-1 shrink-0"/>
                 </button>
@@ -110,17 +122,48 @@ function ConnectorsView() {
 
             {conn.id === 'lms' && (
               <div className="mt-5 space-y-3">
-                <Field label="학번"><input defaultValue="20231234" className="ssu-input mono"/></Field>
-                <Field label="비밀번호"><input type="password" defaultValue="••••••••••" className="ssu-input mono"/></Field>
-                <Field label="LMS Base URL" mono><input defaultValue="https://lms.ssu.ac.kr" className="ssu-input mono"/></Field>
-                <Field label="로그인 방식"><input defaultValue="xn-sso-dir-sso" className="ssu-input mono"/></Field>
-                <div className="rounded-lg bg-emerald-50 border border-emerald-200/60 p-3 flex items-start gap-2 text-[12px]">
-                  <Icn.Check size={14} className="text-[var(--ok)] mt-0.5"/>
-                  <div>
-                    <div className="text-[var(--ok)] font-medium">세션 캐시 활성</div>
-                    <div className="text-zinc-600 mt-0.5">storage_state.json · 재사용 시 0.5초 (12배 가속)</div>
+                <Field label="학번">
+                  <input
+                    value={lmsForm.studentId}
+                    onChange={e => setLmsForm(f => ({ ...f, studentId: e.target.value }))}
+                    placeholder="20231234"
+                    className="ssu-input mono"
+                  />
+                </Field>
+                <Field label="비밀번호" mono>
+                  <input
+                    type="password"
+                    value={lmsForm.password}
+                    onChange={e => setLmsForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder={lmsActive ? '저장됨 — 변경 시 재로그인' : '스마트캠퍼스 비밀번호'}
+                    className="ssu-input mono"
+                  />
+                </Field>
+                <Field label="LMS Base URL" mono><input defaultValue="https://lms.ssu.ac.kr" className="ssu-input mono" readOnly/></Field>
+                <Field label="로그인 방식"><input defaultValue="xn-sso-dir-sso" className="ssu-input mono" readOnly/></Field>
+
+                {/* 세션 상태 박스 — 실제 lmsSession 반영 */}
+                {lmsActive ? (
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-200/60 p-3 flex items-start gap-2 text-[12px]">
+                    <Icn.Check size={14} className="text-[var(--ok)] mt-0.5"/>
+                    <div className="flex-1">
+                      <div className="text-[var(--ok)] font-medium">세션 캐시 활성</div>
+                      <div className="text-zinc-600 mt-0.5">
+                        Playwright storage_state · {formatSessionExpiry(lmsSession.savedAt)} · 마지막 갱신 {formatSessionAge(lmsSession.savedAt)}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="rounded-lg bg-zinc-50 border border-[var(--line)] p-3 flex items-start gap-2 text-[12px]">
+                    <Icn.Clock size={14} className="text-zinc-500 mt-0.5"/>
+                    <div className="flex-1">
+                      <div className="text-zinc-700 font-medium">세션 없음</div>
+                      <div className="text-zinc-500 mt-0.5">
+                        아래 "연결 테스트" 를 눌러 LMS 로그인 후 storage_state 를 발급받으세요.
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -159,15 +202,42 @@ function ConnectorsView() {
             )}
 
             <div className="mt-5 pt-4 border-t border-[var(--line)] flex items-center justify-between">
-              <div className="text-[11.5px] mono text-zinc-500">마지막 점검 · {conn.last}</div>
+              <div className="text-[11.5px] mono text-zinc-500">
+                {conn.id === 'lms' && lmsActive
+                  ? `마지막 갱신 · ${formatSessionAge(lmsSession.savedAt)}`
+                  : `마지막 점검 · ${conn.last}`}
+              </div>
               <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => toggleConnector(conn.id)}
-                  className={`h-8 px-3 rounded-md border text-[12px] flex items-center gap-1.5 ${conn.status === 'connected' ? 'border-[var(--line)] bg-white hover:bg-zinc-50 text-[var(--danger)]' : 'border-[var(--line)] bg-white hover:bg-zinc-50'}`}
-                >
-                  {conn.status === 'connected' ? '연결 해제' : '연결하기'}
-                </button>
-                <button className="h-8 px-3 rounded-md accent-bg text-white text-[12px]">저장</button>
+                {/* LMS 만 실제 동작 — 다른 커넥터는 토글 mock */}
+                {conn.id === 'lms' ? (
+                  <>
+                    <button
+                      onClick={() => lmsActive ? refreshLms() : loginLms(lmsForm.studentId, lmsForm.password)}
+                      disabled={lmsBusy || (!lmsActive && (!lmsForm.studentId || !lmsForm.password))}
+                      className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px] flex items-center gap-1.5 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Icn.Sync size={13} className={lmsBusy ? 'animate-spin' : ''}/>
+                      {lmsBusy ? '확인 중…' : lmsActive ? '세션 갱신' : '연결 테스트'}
+                    </button>
+                    <button
+                      onClick={() => loginLms(lmsForm.studentId, lmsForm.password)}
+                      disabled={lmsBusy || !lmsForm.studentId || !lmsForm.password}
+                      className="h-8 px-3 rounded-md accent-bg text-white text-[12px] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {lmsActive ? '재로그인' : '로그인'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => toggleConnector(conn.id)}
+                      className={`h-8 px-3 rounded-md border text-[12px] flex items-center gap-1.5 ${conn.status === 'connected' ? 'border-[var(--line)] bg-white hover:bg-zinc-50 text-[var(--danger)]' : 'border-[var(--line)] bg-white hover:bg-zinc-50'}`}
+                    >
+                      {conn.status === 'connected' ? '연결 해제' : '연결하기'}
+                    </button>
+                    <button className="h-8 px-3 rounded-md accent-bg text-white text-[12px]">저장</button>
+                  </>
+                )}
               </div>
             </div>
           </div>

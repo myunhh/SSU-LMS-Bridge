@@ -3,6 +3,7 @@ import { useState as stS } from 'react';
 import Ist from './icons';
 import { useData } from '../data/DataStore';
 import { SETTINGS_SECTIONS, APP_BRAND } from '../data/uiConfig';
+import { formatSessionExpiry, formatSessionAge } from '../api/lmsAuth';
 
 /* ============== Settings ============== */
 function SettingsView() {
@@ -82,7 +83,7 @@ const Row = ({ label, sub, children }) => (
 );
 
 function AccountSection() {
-  const { user: USER, semester: SEMESTER } = useData();
+  const { user: USER, semester: SEMESTER, lmsSession, lmsBusy, loginLms, refreshLms, clearLms } = useData();
   return (
     <>
       <SectionCard title="프로필" sub="LMS 계정과 별개로 앱 안에서만 사용합니다."
@@ -113,17 +114,18 @@ function AccountSection() {
         </div>
       </SectionCard>
 
-      <SectionCard title="LMS 연동" sub="canvas.ssu.ac.kr 자격 증명 — 로컬에 암호화 저장">
-        <Row label="학번"><input key={USER.studentId} defaultValue={USER.studentId} className="ssu-input mono"/></Row>
-        <Row label="비밀번호"><input type="password" defaultValue="••••••••••" className="ssu-input mono"/></Row>
-        <Row label="세션 캐시" sub="storage_state.json — 재사용 시 0.5초">
-          <div className="flex items-center gap-2">
-            <span className="text-[11.5px] mono text-[var(--ok)] flex items-center gap-1">
-              <Ist.Check size={13}/> 활성 · 만료 6일 후
-            </span>
-            <button className="h-7 px-2.5 rounded-md border border-[var(--line)] text-[11.5px] hover:bg-zinc-50">재발급</button>
-          </div>
+      <SectionCard title="LMS 연동" sub="canvas.ssu.ac.kr Playwright SSO 자격 증명">
+        <Row label="학번"><input key={USER.studentId} defaultValue={USER.studentId} className="ssu-input mono" readOnly/></Row>
+        <Row label="비밀번호" sub="가입 시 입력한 LMS 비밀번호로 자동 연결됩니다.">
+          <input type="password" defaultValue="••••••••••" className="ssu-input mono" readOnly/>
         </Row>
+        <LmsSessionRow
+          session={lmsSession}
+          busy={lmsBusy}
+          onRefresh={refreshLms}
+          onRelogin={() => loginLms(USER.studentId, 'demo')}
+          onClear={clearLms}
+        />
       </SectionCard>
 
       <SectionCard title="위험 영역">
@@ -447,6 +449,56 @@ function Switch({ defaultOn }) {
     <button onClick={() => setV(!v)} className={`relative inline-block h-5 w-9 rounded-full transition shrink-0 ${v ? 'accent-bg' : 'bg-zinc-300'}`}>
       <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${v ? 'left-[18px]' : 'left-0.5'}`}/>
     </button>
+  );
+}
+
+/* ── LMS 세션 상태 + 액션 (Settings → LMS 연동) ──────────────────────────── */
+function LmsSessionRow({ session, busy, onRefresh, onRelogin, onClear }) {
+  const active = session?.active;
+  const expiry = active ? formatSessionExpiry(session.savedAt) : '—';
+  const age    = active ? formatSessionAge(session.savedAt) : '—';
+
+  return (
+    <Row label="세션 캐시" sub={
+      active
+        ? `Playwright storage_state 보관 · 마지막 갱신 ${age}`
+        : '세션 없음 — 다시 로그인하면 자동 발급됩니다.'
+    }>
+      <div className="flex items-center gap-2 flex-wrap">
+        {active ? (
+          <span className="text-[11.5px] mono text-[var(--ok)] flex items-center gap-1">
+            <Ist.Check size={13}/> 활성 · {expiry}
+          </span>
+        ) : (
+          <span className="text-[11.5px] mono text-zinc-500">비활성</span>
+        )}
+        <button
+          onClick={onRefresh}
+          disabled={busy || !active}
+          className="h-7 px-2.5 rounded-md border border-[var(--line)] text-[11.5px] hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {busy ? '갱신 중…' : '재발급'}
+        </button>
+        {!active && (
+          <button
+            onClick={onRelogin}
+            disabled={busy}
+            className="h-7 px-2.5 rounded-md accent-bg text-white text-[11.5px] disabled:opacity-50"
+          >
+            {busy ? '로그인 중…' : '지금 로그인'}
+          </button>
+        )}
+        {active && (
+          <button
+            onClick={onClear}
+            disabled={busy}
+            className="h-7 px-2.5 rounded-md border border-[var(--line)] text-[11.5px] text-[var(--danger)] hover:bg-rose-50 disabled:opacity-50"
+          >
+            세션 끊기
+          </button>
+        )}
+      </div>
+    </Row>
   );
 }
 
