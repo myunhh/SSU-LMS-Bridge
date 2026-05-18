@@ -19,12 +19,21 @@
 const env = import.meta.env;
 
 // ── 현재 사용자 ────────────────────────────────────────────────────────────────
-// 데모/개발용 기본값 — 실제 운영에서는 로그인 후 백엔드에서 사용자 정보를 받아온다.
+// 우선순위: localStorage 회원가입 정보 → .env 데모값 → 하드코딩 fallback
+function _getStoredUser() {
+  try {
+    const studentId = localStorage.getItem('ssu_session');
+    if (!studentId) return null;
+    const list = JSON.parse(localStorage.getItem('ssu_accounts') || '[]');
+    return list.find(a => a.studentId === studentId) || null;
+  } catch { return null; }
+}
+const _stored = _getStoredUser();
 const USER = {
-  name:      env.VITE_DEMO_USER_NAME   || '민윤홍',
-  studentId: env.VITE_DEMO_STUDENT_ID  || '20231234',
-  email:     env.VITE_DEMO_USER_EMAIL  || 'student@soongsil.ac.kr',
-  major:     env.VITE_DEMO_USER_MAJOR  || 'AI소프트웨어학부',
+  name:      _stored?.name      || env.VITE_DEMO_USER_NAME   || '홍길동',
+  studentId: _stored?.studentId || env.VITE_DEMO_STUDENT_ID  || '20260000',
+  email:     _stored?.email     || env.VITE_DEMO_USER_EMAIL  || 'student@soongsil.ac.kr',
+  major:     _stored?.major     || env.VITE_DEMO_USER_MAJOR  || 'AI소프트웨어학부',
 };
 
 // ── 현재 학기 / 시점 ───────────────────────────────────────────────────────────

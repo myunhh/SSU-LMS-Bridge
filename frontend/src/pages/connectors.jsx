@@ -126,7 +126,7 @@ function ConnectorsView() {
                   <input
                     value={lmsForm.studentId}
                     onChange={e => setLmsForm(f => ({ ...f, studentId: e.target.value }))}
-                    placeholder="20231234"
+                    placeholder={user?.studentId || '학번'}
                     className="ssu-input mono"
                   />
                 </Field>
