@@ -1,22 +1,11 @@
 # backend/app/adapter/notices.py
 # 공지사항 조회
+# backend/app/adapter/notices.py
+# 공지사항 파싱
 """공지사항 조회"""
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import List
 from .canvas_client import CanvasClient
-
-
-class Notice(BaseModel):
-    id: int
-    course_id: int
-    title: str
-    message_snippet: str = ""
-    posted_at: Optional[str] = None
-    author: str = ""
-    html_url: str = ""
-
-    class Config:
-        extra = "ignore"
+from ..models import Notice
 
 
 async def list_notices(client: CanvasClient, course_id: int) -> List[Notice]:
