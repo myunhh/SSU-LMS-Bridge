@@ -1,22 +1,11 @@
 # backend/app/adapter/materials.py
 # 강의 자료(파일) 조회 및 다운로드
+# backend/app/adapter/materials.py
+# 강의 자료(파일) 조회 및 다운로드
 """주차별 강의 자료 조회"""
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import List
 from .canvas_client import CanvasClient
-
-
-class Material(BaseModel):
-    id: int
-    course_id: int
-    module_name: str = ""
-    title: str = ""
-    item_type: str = ""
-    url: Optional[str] = None
-    position: int = 0
-
-    class Config:
-        extra = "ignore"
+from ..models import Material
 
 
 async def list_materials(client: CanvasClient, course_id: int) -> List[Material]:
