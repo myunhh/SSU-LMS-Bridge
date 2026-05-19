@@ -1,7 +1,5 @@
 # backend/app/adapter/assignments.py
 # 과제 목록 조회
-# backend/app/adapter/assignments.py
-# 과제 목록 조회
 """과제 목록 + 마감일 조회"""
 from typing import List, Optional
 from datetime import datetime
