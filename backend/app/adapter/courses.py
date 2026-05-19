@@ -2,18 +2,8 @@
 # 수강 강의 목록 조회
 """수강 과목 목록 조회"""
 from typing import List
-from pydantic import BaseModel
 from .canvas_client import CanvasClient
-
-
-class Course(BaseModel):
-    id: int
-    name: str
-    course_code: str = ""
-    term: str = ""
-
-    class Config:
-        extra = "ignore"
+from ..models import Course
 
 
 async def list_courses(client: CanvasClient) -> List[Course]:
