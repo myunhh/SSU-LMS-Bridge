@@ -1,6 +1,7 @@
 # backend/app/adapter/canvas_client.py
 # canvas.ssu.ac.kr REST API httpx 클라이언트 (CanvasClient)
 """Canvas REST API httpx 클라이언트"""
+import os
 import json
 import httpx
 from pathlib import Path
@@ -8,15 +9,19 @@ from typing import Any, Optional
 
 
 class CanvasClient:
-    """canvas.ssu.ac.kr REST API 클라이언트 (세션 쿠키 or Bearer 토큰)"""
+    """canvas.ssu.ac.kr REST API 클라이언트"""
 
-    BASE = "https://canvas.ssu.ac.kr/learningx/api/v1"
-    CANVAS_BASE = "https://canvas.ssu.ac.kr/api/v1"
-
-    def __init__(self, session_file: str = "ssu_lms_session.json"):
+    def __init__(self, session_file: str = None):
+        if session_file is None:
+            session_file = os.getenv("SESSION_CACHE_PATH", "ssu_lms_session.json")
         self.session_file = Path(session_file)
         self._client: Optional[httpx.AsyncClient] = None
         self._token: Optional[str] = None
+
+        # .env의 LMS_BASE_URL 반영
+        base = os.getenv("LMS_BASE_URL", "https://lms.ssu.ac.kr")
+        self.BASE = f"{base}/learningx/api/v1"
+        self.CANVAS_BASE = f"{base}/api/v1"
 
     async def init(self):
         if not self.session_file.exists():
