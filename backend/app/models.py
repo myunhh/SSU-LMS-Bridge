@@ -1,3 +1,4 @@
+# backend/app/models.py
 """
 SSU LMS Bridge 공유 데이터 모델 (Pydantic v2)
 """
@@ -31,6 +32,7 @@ class Notice(BaseModel):
     posted_at: Optional[str] = None
     author: str = ""
     html_url: str = ""
+    is_read: bool = False       # ✅ 추가: 읽음 여부
 
     class Config:
         extra = "ignore"
@@ -48,6 +50,7 @@ class Assignment(BaseModel):
     submission_types: List[str] = []
     html_url: str = ""
     description_snippet: str = ""
+    submitted: bool = False     # ✅ 추가: 제출 여부
 
     class Config:
         extra = "ignore"
