@@ -13,6 +13,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import * as seed from './mockData';
 import * as LmsAuthApi from '../api/lmsAuth';
+import * as Api from '../api/index';
 
 const DataContext = createContext(null);
 
@@ -35,6 +36,7 @@ export function DataProvider({ children, onToast, authUser }) {
   const suggestions = seed.SUGGESTIONS;
 
   // 변할 수 있는 것들 (사용자 인터랙션으로 갱신됨)
+  // 초기값은 seed — 백엔드에서 받아오면 useEffect 가 덮어쓴다.
   const [courses,       setCourses]       = useState(seed.COURSES);
   const [assignments,   setAssignments]   = useState(seed.ASSIGNMENTS);
   const [notices,       setNotices]       = useState(seed.NOTICES);
@@ -43,6 +45,9 @@ export function DataProvider({ children, onToast, authUser }) {
   const [conversations, setConversations] = useState(seed.CONVERSATIONS);
   const [chatSeed,      setChatSeed]      = useState(seed.CHAT_SEED);
   const [connectors,    setConnectors]    = useState(seed.CONNECTORS);
+
+  // 데이터 로딩 상태 — 초기 fetch / refetch 중일 때 true
+  const [loading, setLoading] = useState(false);
 
   // 동기화 진행 상태 (Topbar 버튼이 사용)
   const [syncing, setSyncing] = useState(false);
@@ -53,9 +58,26 @@ export function DataProvider({ children, onToast, authUser }) {
   const [lmsSession, setLmsSession] = useState(null);
   const [lmsBusy, setLmsBusy] = useState(false);   // 로그인 / 갱신 중
 
-  // 앱 시작 시 한 번 세션 상태 조회
+  // 앱 시작 시 한 번 세션 상태 조회 + 초기 데이터 로드
   useEffect(() => {
     LmsAuthApi.getLmsSessionStatus().then(s => setLmsSession(s));
+
+    // 백엔드 라우트 준비 전엔 USE_MOCK=true 라 seed 와 같은 값이 돌아오지만,
+    // 라우트가 채워지면 자동으로 실제 데이터로 갱신된다.
+    setLoading(true);
+    Api.fetchInitialBundle()
+      .then(({ courses, assignments, notices }) => {
+        if (courses?.length)     setCourses(courses);
+        if (assignments?.length) setAssignments(assignments);
+        if (notices?.length)     setNotices(notices);
+      })
+      .catch(err => {
+        console.warn('[DataStore] 초기 데이터 로드 실패:', err);
+        onToast?.({ kind: 'error', text: '초기 데이터 로드에 실패했습니다.' });
+      })
+      .finally(() => setLoading(false));
+  // onToast 가 매 렌더마다 새로 만들어지면 effect 가 무한 루프 되므로 의도적으로 deps 비움
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -98,22 +120,47 @@ export function DataProvider({ children, onToast, authUser }) {
   }, [onToast]);
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 액션: 동기화 (지금은 fake — 1.5초 대기 후 ACTIVITY 갱신)
-  // 백엔드 연결 시 fetch('/api/sync', {method:'POST'}) 로 교체
+  // 액션: 동기화
+  // mock 모드면 1.5초 대기 후 ACTIVITY만 갱신, 실 모드면 POST /api/sync 호출 후
+  // courses/notices/assignments 를 refetch 한다.
   // ──────────────────────────────────────────────────────────────────────────
   const triggerSync = useCallback(async () => {
     if (syncing) return;
     setSyncing(true);
     onToast?.({ kind: 'info', text: '동기화를 시작했습니다…' });
     try {
-      await new Promise(r => setTimeout(r, 1500));
+      const result = await Api.triggerSync();
+
+      // 동기화 후 데이터 새로고침 (실 모드일 때만 의미 있음, mock 모드면 같은 값)
+      try {
+        const { courses: nc, assignments: na, notices: nn } = await Api.fetchInitialBundle();
+        if (nc?.length) setCourses(nc);
+        if (na?.length) setAssignments(na);
+        if (nn?.length) setNotices(nn);
+      } catch (e) {
+        console.warn('[DataStore] 동기화 후 refetch 실패:', e);
+      }
+
+      const summary = [
+        `${result.courses}개 강의`,
+        result.notices ? `공지 ${result.notices}건` : null,
+        result.assignments ? `과제 ${result.assignments}건` : null,
+        result.materials ? `자료 ${result.materials}건` : null,
+      ].filter(Boolean).join(' · ');
+
       setActivity(act => [
-        { t: '방금 전', text: '수동 동기화 완료', kind: 'sync', meta: `${courses.length}개 강의 · 0건 변경` },
+        { t: '방금 전', text: '수동 동기화 완료', kind: 'sync', meta: summary || `${courses.length}개 강의 · 0건 변경` },
         ...act,
       ]);
-      setLastSyncAt(new Date());
-      onToast?.({ kind: 'success', text: '동기화 완료 ✓' });
+      setLastSyncAt(new Date(result.syncedAt || Date.now()));
+
+      if (result.errors?.length) {
+        onToast?.({ kind: 'error', text: `동기화 완료 — 일부 항목 실패 (${result.errors.length}건)` });
+      } else {
+        onToast?.({ kind: 'success', text: '동기화 완료 ✓' });
+      }
     } catch (e) {
+      console.error('[DataStore] triggerSync 실패:', e);
       onToast?.({ kind: 'error', text: '동기화에 실패했습니다.' });
     } finally {
       setSyncing(false);
@@ -234,8 +281,8 @@ export function DataProvider({ children, onToast, authUser }) {
     // 동적 데이터
     courses, assignments, notices, notifications, activity,
     conversations, chatSeed, connectors,
-    // 동기화 상태
-    syncing, lastSyncAt,
+    // 로딩 / 동기화 상태
+    loading, syncing, lastSyncAt,
     // LMS 세션 상태 + 액션
     lmsSession, lmsBusy,
     loginLms, refreshLms, reloadLmsSession, clearLms,
