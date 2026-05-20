@@ -28,6 +28,10 @@ dependencies = [
     "apscheduler>=3.10.4",
     # 로깅
     "loguru>=0.7.2",
+    # MCP (Model Context Protocol) — Notion / Obsidian 연동
+    "mcp>=1.0.0",
+    # Notion API 클라이언트 (MCP Notion 서버에서 사용)
+    "notion-client>=2.2.1",
 ]
 
 [project.optional-dependencies]
