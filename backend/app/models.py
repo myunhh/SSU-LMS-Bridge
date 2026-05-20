@@ -16,6 +16,9 @@ class Course(BaseModel):
     name: str
     course_code: str = ""
     term: str = ""
+    professor: str = ""              # ✅ 추가: 담당 교수명
+    credits: Optional[float] = None  # ✅ 추가: 학점
+    progress: Optional[float] = None # ✅ 추가: 진도율 (0.0 ~ 100.0)
 
     class Config:
         extra = "ignore"
