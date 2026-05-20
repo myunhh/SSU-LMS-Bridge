@@ -1,6 +1,4 @@
 # backend/app/adapter/notices.py
-# 공지사항 조회
-# backend/app/adapter/notices.py
 # 공지사항 파싱
 """공지사항 조회"""
 from typing import List
