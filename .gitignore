@@ -3,6 +3,8 @@
 .env.local
 .cache/
 .claude/
+ssu_lms_session.json
+*.session.json
 
 # ── Python ──────────────────────────────────────────────────
 __pycache__/
