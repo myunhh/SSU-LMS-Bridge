@@ -82,6 +82,19 @@ class CanvasClient:
             params = None
         return results
 
+    async def download_file(self, url: str, dest: Path) -> Path:
+        """
+        파일 URL에서 바이트를 다운로드하여 dest 경로에 저장 후 반환.
+        vault_service 등 외부 모듈에서 호출.
+        """
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        async with self._client.stream("GET", url) as resp:
+            resp.raise_for_status()
+            with open(dest, "wb") as f:
+                async for chunk in resp.aiter_bytes(chunk_size=8192):
+                    f.write(chunk)
+        return dest
+
     @staticmethod
     def _find_token(session_data: dict) -> Optional[str]:
         for origin in session_data.get("storage_state", {}).get("origins", []):
