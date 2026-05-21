@@ -1,19 +1,40 @@
 # backend/app/api/deps.py
-# 공통 의존성 주입 — LMSAuth 싱글턴, CanvasClient 팩토리
-"""공통 의존성 주입.
-
-MCP / Chat 관련만 우선 정의. LMSAuth / CanvasClient 팩토리는 담당자 영역.
-"""
+# 공통 의존성 주입
+# ──────────────────────────────────────────────────────────────────────────────
+# - get_canvas_client : 요청마다 CanvasClient 를 init() → yield → close().
+#       세션 파일이 없으면(=로그인 전) 503 으로 변환해 프론트가 "재로그인 필요" 처리 가능.
+# - get_mcp_registry  : Notion / Obsidian MCP 클라이언트를 prefix 로 묶은 registry.
+# - get_chat_service  : LLM(litellm) + MCP tool-use 채팅 서비스.
+# ──────────────────────────────────────────────────────────────────────────────
 from functools import lru_cache
+from typing import AsyncGenerator
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
 
-from app.config import Settings, get_settings
+from app.adapter.canvas_client import CanvasClient
+from app.config import Settings, get_settings, settings
 from app.mcp_client.base import MCPClientBase
 from app.mcp_client.registry import McpRegistry
 from app.services.llm import ChatService
 
 
+# ── Canvas / LMS ──────────────────────────────────────────────
+async def get_canvas_client() -> AsyncGenerator[CanvasClient, None]:
+    client = CanvasClient(session_file=str(settings.session_cache_abspath))
+    try:
+        await client.init()
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LMS 세션이 없습니다. 먼저 로그인하세요.",
+        ) from e
+    try:
+        yield client
+    finally:
+        await client.close()
+
+
+# ── MCP / Chat ────────────────────────────────────────────────
 @lru_cache
 def _build_registry(
     notion_url: str,

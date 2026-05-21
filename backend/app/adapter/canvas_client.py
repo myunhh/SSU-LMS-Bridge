@@ -13,7 +13,7 @@ class CanvasClient:
 
     def __init__(self, session_file: str = None):
         if session_file is None:
-            session_file = os.getenv("SESSION_CACHE_PATH", "ssu_lms_session.json")
+            session_file = os.getenv("SESSION_CACHE_PATH", ".cache/session_state.json")
         self.session_file = Path(session_file)
         self._client: Optional[httpx.AsyncClient] = None
         self._token: Optional[str] = None

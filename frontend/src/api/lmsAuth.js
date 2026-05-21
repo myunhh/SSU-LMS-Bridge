@@ -18,8 +18,9 @@
 
 import { API_BASE } from '../data/uiConfig';
 
-// 백엔드 준비 전까지 mock 응답. 백엔드 라우트 생기면 false 로.
-const USE_MOCK = true;
+// 백엔드 LMS 라우트(/api/lms/*) 가 구현되어 실연결.
+// 로컬에서 백엔드를 띄우지 않고 UI 만 보고 싶다면 true 로 바꾸면 mock 으로 돌아간다.
+const USE_MOCK = false;
 
 // 백엔드 자동 세션 연장 주기 (auth.py 의 session_keeper_loop 와 동일: 5400초)
 export const SESSION_REFRESH_INTERVAL = 5400;
@@ -61,16 +62,23 @@ export async function lmsLogin(studentId, password) {
   }
 
   // ── 실제 백엔드 호출 ────────────────────────────────────────────────────
-  const res = await fetch(`${API_BASE}/api/lms/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ studentId, password }),
-  });
-  if (res.status === 401) return { ok: false, error: 'LMS 학번 또는 비밀번호가 일치하지 않습니다.' };
-  if (!res.ok)            return { ok: false, error: '서버 오류로 로그인하지 못했습니다.' };
-  const data = await res.json();
-  writeMeta({ userInfo: data.userInfo, savedAt: data.savedAt });
-  return { ok: true, userInfo: data.userInfo, savedAt: data.savedAt };
+  try {
+    const res = await fetch(`${API_BASE}/api/lms/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, password }),
+    });
+    if (res.status === 401) {
+      const d = await res.json().catch(() => ({}));
+      return { ok: false, error: d.detail || 'LMS 학번 또는 비밀번호가 일치하지 않습니다.' };
+    }
+    if (!res.ok) return { ok: false, error: '서버 오류로 로그인하지 못했습니다.' };
+    const data = await res.json();
+    writeMeta({ userInfo: data.userInfo, savedAt: data.savedAt });
+    return { ok: true, userInfo: data.userInfo, savedAt: data.savedAt };
+  } catch {
+    return { ok: false, error: '백엔드 서버에 연결할 수 없습니다. (uvicorn 실행 확인)' };
+  }
 }
 
 /**
@@ -100,9 +108,14 @@ export async function getLmsSessionStatus() {
     };
   }
 
-  const res = await fetch(`${API_BASE}/api/lms/session`);
-  if (!res.ok) return { active: false };
-  return await res.json();
+  try {
+    const res = await fetch(`${API_BASE}/api/lms/session`);
+    if (!res.ok) return { active: false };
+    return await res.json();
+  } catch {
+    // 백엔드 미기동 — 비활성으로 간주 (앱은 정상 동작)
+    return { active: false };
+  }
 }
 
 /**
@@ -120,11 +133,15 @@ export async function refreshLmsSession() {
     return { ok: true, savedAt: next.savedAt };
   }
 
-  const res = await fetch(`${API_BASE}/api/lms/session/refresh`, { method: 'POST' });
-  if (res.status === 401) return { ok: false, error: '세션이 만료되었습니다. 다시 로그인해주세요.' };
-  if (!res.ok)            return { ok: false, error: '세션 갱신에 실패했습니다.' };
-  const data = await res.json();
-  return { ok: true, savedAt: data.savedAt };
+  try {
+    const res = await fetch(`${API_BASE}/api/lms/session/refresh`, { method: 'POST' });
+    if (res.status === 401) return { ok: false, error: '세션이 만료되었습니다. 다시 로그인해주세요.' };
+    if (!res.ok)            return { ok: false, error: '세션 갱신에 실패했습니다.' };
+    const data = await res.json();
+    return { ok: true, savedAt: data.savedAt };
+  } catch {
+    return { ok: false, error: '백엔드 서버에 연결할 수 없습니다. (uvicorn 실행 확인)' };
+  }
 }
 
 /**
