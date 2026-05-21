@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import lms, sync
 from app.config import settings
 from app.logger import setup_logging
 
@@ -63,11 +64,12 @@ async def root():
 
 
 # ── 라우터 등록 ───────────────────────────────────────────────
-# TODO(🅰 5~7 / 🅱 / 🅳): 라우트 구현 후 아래처럼 등록한다.
-#   from app.api.routes import courses, notices, assignments, sync, chat, lms
+app.include_router(lms.router, prefix="/api", tags=["lms"])
+app.include_router(sync.router, prefix="/api", tags=["sync"])
+
+# TODO(🅰 5~7 / 🅳): 데이터 조회 / 채팅 라우트 구현 후 등록.
+#   from app.api.routes import courses, notices, assignments, chat
 #   app.include_router(courses.router,     prefix="/api", tags=["courses"])
 #   app.include_router(notices.router,     prefix="/api", tags=["notices"])
 #   app.include_router(assignments.router, prefix="/api", tags=["assignments"])
-#   app.include_router(sync.router,        prefix="/api", tags=["sync"])
 #   app.include_router(chat.router,        prefix="/api", tags=["chat"])
-#   app.include_router(lms.router,         prefix="/api", tags=["lms"])

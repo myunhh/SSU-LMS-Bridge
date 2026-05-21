@@ -35,8 +35,11 @@
 import { API_BASE } from '../data/uiConfig';
 import * as seed from '../data/mockData';
 
-// 백엔드 라우트가 채워지면 false 로.
+// 데이터 조회 라우트(/api/courses 등)는 아직 없음 → mock 유지.
 export const USE_MOCK = true;
+// 동기화 라우트(/api/sync)는 구현됨 → 실연결.
+// 백엔드 없이 UI 만 보고 싶으면 true 로.
+export const USE_MOCK_SYNC = false;
 
 // ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
 async function request(path, options = {}) {
@@ -195,7 +198,7 @@ export async function fetchModules(courseId) {
  *                     errors: string[] }>}
  */
 export async function triggerSync() {
-  if (USE_MOCK) {
+  if (USE_MOCK_SYNC) {
     await fakeDelay(1500);
     return {
       success: true,
@@ -207,6 +210,7 @@ export async function triggerSync() {
       errors: [],
     };
   }
+  // 실연결 — POST /api/sync (백엔드가 auth.load_session() + Canvas 수집 수행)
   const data = await request('/api/sync', { method: 'POST' });
   return {
     success: data.success,
