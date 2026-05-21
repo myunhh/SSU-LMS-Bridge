@@ -46,7 +46,9 @@ def setup_mcp(app: FastAPI, settings: Settings) -> None:
         )
 
     # ── Obsidian ───────────────────────────────────────────
-    if settings.obsidian_mcp_auth_code and settings.obsidian_vault_path:
+    # obsidian_vault_path 는 vault 내부 상대 경로 → 보통 빈 문자열("")이 정상이므로
+    # 마운트 조건에서 제외하고, auth_code 만으로 활성화 여부를 판단한다.
+    if settings.obsidian_mcp_auth_code:
         obsidian_server = create_obsidian_mcp_server(
             auth_code=settings.obsidian_mcp_auth_code,
             vault_path=settings.obsidian_vault_path,
@@ -55,5 +57,5 @@ def setup_mcp(app: FastAPI, settings: Settings) -> None:
         logger.info(f"[MCP] Obsidian 마운트: {settings.obsidian_mcp_url}")
     else:
         logger.warning(
-            "[MCP] OBSIDIAN_MCP_AUTH_CODE / OBSIDIAN_VAULT_PATH 미설정 → Obsidian MCP 건너뜀"
+            "[MCP] OBSIDIAN_MCP_AUTH_CODE 미설정 → Obsidian MCP 건너뜀"
         )
