@@ -5,6 +5,10 @@
 #   - frontend/.env 의 VITE_* 변수는 여기서 다루지 않는다 (브라우저 빌드 전용).
 #   - .env 에 없는 키는 아래 기본값을 사용한다.
 #   - .env 에 있지만 여기 정의되지 않은 키는 extra="ignore" 로 무시된다.
+#
+# MCP(Notion / Obsidian) 클라이언트가 붙을 SSE URL 은 setup_mcp() 가 같은
+# 백엔드 프로세스에 마운트한 엔드포인트로, notion_mcp_url / obsidian_mcp_url
+# 프로퍼티가 backend_port 로부터 조립해서 제공한다.
 # ──────────────────────────────────────────────────────────────────────────────
 from functools import lru_cache
 from pathlib import Path
@@ -26,34 +30,32 @@ class Settings(BaseSettings):
 
     # ── LMS 계정 ────────────────────────────────────────────────
     lms_username: str = ""
+    lms_password: str = ""
     lms_base_url: str = "https://lms.ssu.ac.kr"
     lms_login_type: str = "xn-sso-dir-sso"
 
     # ── Notion ──────────────────────────────────────────────────
     notion_token: str = ""
     notion_root_page_id: str = ""
-    # MCP SSE 엔드포인트 (서버를 별도로 띄울 경우). 비면 MCP 동기화 비활성.
-    notion_mcp_url: str = ""
 
     # ── Obsidian ────────────────────────────────────────────────
     obsidian_vault_path: str = ""
     obsidian_mcp_auth_code: str = ""
     obsidian_vault_name: str = "LMS_Bridge_Vault"
-    obsidian_mcp_url: str = ""
-
-    # ── 세션 캐시 ────────────────────────────────────────────────
-    # Playwright storage_state / 쿠키 저장 경로 (CanvasClient 가 읽음)
-    session_cache_path: str = "ssu_lms_session.json"
-
-    # ── 동기화 설정 ─────────────────────────────────────────────
-    sync_interval_hours: int = 24
-    sync_hour: int = 4
-    download_files: bool = True
 
     # ── LLM ─────────────────────────────────────────────────────
     llm_provider: str = "anthropic"
     llm_api_key: str = ""
     llm_model: str = "claude-haiku-4-5"
+
+    # ── 세션 캐시 ────────────────────────────────────────────────
+    # Playwright storage_state / 쿠키 저장 경로 (CanvasClient 가 읽음)
+    session_cache_path: str = ".cache/session_state.json"
+
+    # ── 동기화 설정 ─────────────────────────────────────────────
+    sync_interval_hours: int = 24
+    sync_hour: int = 4
+    download_files: bool = True
 
     # ── 웹 서버 포트 ─────────────────────────────────────────────
     backend_port: int = 8000
@@ -63,7 +65,18 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     playwright_headless: bool = True
 
-    # ── 파생값 ──────────────────────────────────────────────────
+    # ── 파생 값: MCP 클라이언트가 붙을 내부 SSE URL ──────────────
+    # setup_mcp() 가 같은 백엔드 프로세스에 마운트한 엔드포인트.
+    # services/notion_services.py · services/vault_service.py 가 이 값을 받아 SSE 연결을 연다.
+    @property
+    def notion_mcp_url(self) -> str:
+        return f"http://localhost:{self.backend_port}/mcp/notion/sse"
+
+    @property
+    def obsidian_mcp_url(self) -> str:
+        return f"http://localhost:{self.backend_port}/mcp/obsidian/sse"
+
+    # ── 파생 값: 경로 / CORS ────────────────────────────────────
     @property
     def root_dir(self) -> Path:
         return ROOT_DIR
