@@ -35,10 +35,10 @@
 import { API_BASE } from '../data/uiConfig';
 import * as seed from '../data/mockData';
 
-// 데이터 조회 라우트(/api/courses 등)는 아직 없음 → mock 유지.
-export const USE_MOCK = true;
-// 동기화 라우트(/api/sync)는 구현됨 → 실연결.
-// 백엔드 없이 UI 만 보고 싶으면 true 로.
+// 데이터 조회 라우트(/api/courses 등) 구현+검증 완료 → 실연결.
+// 백엔드 없이 UI 만 보고 싶으면 true 로 바꾸면 mock 으로 돌아간다.
+export const USE_MOCK = false;
+// 동기화 라우트(/api/sync)도 실연결.
 export const USE_MOCK_SYNC = false;
 
 // ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
@@ -59,23 +59,39 @@ async function request(path, options = {}) {
 const fakeDelay = (ms = 250) => new Promise(r => setTimeout(r, ms));
 
 // ── 백엔드 모델 → 프론트 형식 어댑터 ─────────────────────────────────────────
-// id 가 number 인 강의는 그대로, 기존 프론트 mock 의 색상/교수/진도는 백엔드에 없으니
-// 매칭되는 seed.COURSES 항목이 있으면 그 메타를 덧붙인다. (백엔드 응답이 비면 seed 대체)
+// SSU Canvas 는 course name/code 에 "과목명 (과목코드)" 형태를 넣고, 색상·주차 같은
+// 표시용 메타는 제공하지 않는다. 여기서 이름/코드를 정리하고 id 기반으로 색상을 부여한다.
+const COURSE_COLORS = [
+  'oklch(58% 0.14 268)', 'oklch(58% 0.13 195)', 'oklch(58% 0.13 35)',
+  'oklch(56% 0.14 145)', 'oklch(60% 0.10 90)',  'oklch(54% 0.14 305)',
+  'oklch(58% 0.10 230)', 'oklch(56% 0.13 12)',
+];
+function _courseColor(id) {
+  const n = Math.abs(Number(id) || 0);
+  return COURSE_COLORS[n % COURSE_COLORS.length];
+}
+// "고급프로그래밍 (2150164103)" → { name: "고급프로그래밍", code: "2150164103" }
+function _cleanName(raw) {
+  const m = (raw || '').match(/^(.*?)\s*\((\d+)\)\s*$/);
+  return { name: m ? m[1].trim() : (raw || ''), code: m ? m[2] : '' };
+}
 function adaptCourse(b) {
-  const seedMatch = seed.COURSES.find(c => c.id === b.id || c.code === b.course_code);
+  const { name, code } = _cleanName(b.name);
   return {
     id: b.id,
-    code: b.course_code || seedMatch?.code || '',
-    name: b.name || seedMatch?.name || '',
-    professor: seedMatch?.professor || '',
-    credits:   seedMatch?.credits   || 3,
-    color:     seedMatch?.color     || 'oklch(58% 0.14 268)',
-    progress:  seedMatch?.progress  || 0,
-    weekCurrent: seedMatch?.weekCurrent || 0,
-    weekTotal:   seedMatch?.weekTotal   || 16,
-    materials:   seedMatch?.materials   || 0,
-    unread:      seedMatch?.unread      || 0,
-    dueSoon:     seedMatch?.dueSoon     || 0,
+    code: code || b.course_code || '',
+    name: name || b.name || '',
+    professor: b.professor || '',
+    credits: b.credits ?? 3,
+    color: _courseColor(b.id),
+    // 백엔드 progress 는 0~100(%) → 프론트는 0~1 비율 사용
+    progress: b.progress != null ? b.progress / 100 : 0,
+    // 백엔드 미제공 — 기본값 (추후 modules/assignments 로 계산 가능)
+    weekCurrent: 0,
+    weekTotal: 16,
+    materials: 0,
+    unread: 0,
+    dueSoon: 0,
     term: b.term || '',
   };
 }
@@ -89,8 +105,8 @@ function adaptNotice(b) {
     author: b.author || '',
     url:    b.html_url || '',
     snippet: b.message_snippet || '',
-    // read state / pinned 는 백엔드 모델에 없음 → 일단 false 로
-    unread: true,
+    // 백엔드 is_read 반영 (pinned 는 Canvas 에 해당 개념이 없어 false)
+    unread: !b.is_read,
     pinned: false,
   };
 }
@@ -105,8 +121,8 @@ function adaptAssignment(b) {
     type:   (b.submission_types && b.submission_types[0]) || 'report',
     url:    b.html_url || '',
     snippet: b.description_snippet || '',
-    // submitted 여부는 별도 submission 엔드포인트가 필요 → 일단 false
-    submitted: false,
+    // 백엔드 submitted 반영 (어댑터가 submissions API 로 채움)
+    submitted: !!b.submitted,
   };
 }
 
@@ -127,9 +143,10 @@ function adaptMaterialsToModules(materials) {
       week,
       title: moduleName,
       items: items.length,
-      completed: 0,        // Canvas 모듈 progression 별도 호출 필요
-      attended: false,
-      raw: items,
+      // 각 주차의 실제 자료 항목 (제목/타입/링크)
+      list: items
+        .sort((a, b) => (a.position || 0) - (b.position || 0))
+        .map(it => ({ id: it.id, title: it.title, type: it.item_type, url: it.url })),
     });
   }
   return out.sort((a, b) => a.week - b.week);

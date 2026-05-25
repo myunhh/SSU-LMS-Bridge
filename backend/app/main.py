@@ -10,10 +10,12 @@
 # ──────────────────────────────────────────────────────────────────────────────
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from httpx import HTTPStatusError
 
-from app.api.routes import chat, lms, sync
+from app.api.routes import assignments, chat, courses, lms, notices, sync
 from app.config import settings
 from app.logger import setup_logging
 from app.mcp_client.setup import setup_mcp
@@ -53,6 +55,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── 업스트림(Canvas/LMS) 오류를 깔끔한 JSON 으로 변환 ─────────
+# 어댑터가 httpx 로 LMS REST 를 호출하다 4xx/5xx 를 만나면 raise_for_status 가
+# HTTPStatusError 를 던진다. 이를 라우트마다 try/except 하지 않고 전역 처리한다.
+#   401/403/419(세션 만료·CSRF) → 401 (프론트가 재로그인 유도)
+#   그 외                        → 502 (LMS 업스트림 오류)
+@app.exception_handler(HTTPStatusError)
+async def upstream_error_handler(request: Request, exc: HTTPStatusError):
+    code = exc.response.status_code if exc.response is not None else 502
+    if code in (401, 403, 419):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "LMS 세션이 만료되었습니다. 다시 로그인해주세요."},
+        )
+    return JSONResponse(
+        status_code=502,
+        content={"detail": f"LMS 서버 응답 오류 ({code})."},
+    )
+
+
 # ── MCP 서버(Notion · Obsidian) SSE 마운트 ────────────────────
 # 토큰/인증코드가 비어 있으면 해당 MCP 는 건너뛴다 (setup_mcp 내부 처리).
 setup_mcp(app, settings)
@@ -61,12 +82,9 @@ setup_mcp(app, settings)
 app.include_router(lms.router, prefix="/api", tags=["lms"])
 app.include_router(sync.router, prefix="/api", tags=["sync"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
-
-# TODO(🅰 5~7): 데이터 조회 라우트 구현 후 등록.
-#   from app.api.routes import courses, notices, assignments
-#   app.include_router(courses.router,     prefix="/api", tags=["courses"])
-#   app.include_router(notices.router,     prefix="/api", tags=["notices"])
-#   app.include_router(assignments.router, prefix="/api", tags=["assignments"])
+app.include_router(courses.router, prefix="/api", tags=["courses"])
+app.include_router(notices.router, prefix="/api", tags=["notices"])
+app.include_router(assignments.router, prefix="/api", tags=["assignments"])
 
 
 # ── 헬스 체크 / 루트 ──────────────────────────────────────────

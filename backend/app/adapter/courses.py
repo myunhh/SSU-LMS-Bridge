@@ -46,6 +46,20 @@ async def _get_progress(client: CanvasClient, course_id: int) -> Optional[float]
         return None
 
 
+async def list_course_ids(client: CanvasClient) -> List[int]:
+    """강의 ID 목록만 가볍게 조회 (교수/진도 N+1 호출 없이 1~2콜).
+
+    todos·통합공지처럼 ID 만 필요한 곳에서 list_courses 대신 사용.
+    """
+    params = {"enrollment_state": "active", "per_page": 50}
+    try:
+        raw = await client.get("/courses", params=params)
+    except Exception:
+        raw = await client.get("/courses", params=params, use_canvas=True)
+    items = raw if isinstance(raw, list) else raw.get("courses", raw.get("data", []))
+    return [it["id"] for it in items if it.get("id")]
+
+
 async def list_courses(client: CanvasClient) -> List[Course]:
     params = {
         "enrollment_state": "active",

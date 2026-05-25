@@ -1,6 +1,7 @@
 /* Course Detail view */
 import { useState as uS, useEffect as uE, useRef as uR, useMemo as uM } from 'react';
 import { useData } from '../data/DataStore';
+import * as Api from '../api/index';
 import I2 from './icons';
 
 const fmt2 = (iso) => {
@@ -16,18 +17,39 @@ const dUFor = (iso, NOW) => {
   return { label: `D-${days}`, tone: 'text-zinc-500' };
 };
 
+// Canvas module item_type → 한글 라벨
+const TYPE_LABEL = {
+  ExternalTool: '자료', Assignment: '과제', File: '파일', Page: '페이지',
+  Quiz: '퀴즈', Discussion: '토론', ExternalUrl: '링크', SubHeader: '',
+};
+const _typeLabel = (t) => TYPE_LABEL[t] ?? (t || '');
+
 /* ============== Course Detail ============== */
 function CourseDetail({ courseId, openChat }) {
   const {
-    now: NOW, getCourseById, getAssignmentsByCourse, getNoticesByCourse, getModulesByCourse,
+    now: NOW, getCourseById, getAssignmentsByCourse, getNoticesByCourse,
     markNoticeRead, toggleAssignmentSubmit,
   } = useData();
   const c = getCourseById(courseId);
   const [tab, setTab] = uS('materials');
-  const mods = getModulesByCourse(courseId);
+
+  // 강의자료(주차별 모듈) — 실제 /api/courses/{id}/modules 조회
+  const [mods, setMods] = uS([]);
+  const [modsLoading, setModsLoading] = uS(true);
+  uE(() => {
+    let alive = true;
+    setModsLoading(true);
+    Api.fetchModules(courseId)
+      .then(m => { if (alive) setMods(m); })
+      .catch(() => { if (alive) setMods([]); })
+      .finally(() => { if (alive) setModsLoading(false); });
+    return () => { alive = false; };
+  }, [courseId]);
+
   const cAssigns = getAssignmentsByCourse(courseId);
   const cNotices = getNoticesByCourse(courseId);
   const dU = (iso) => dUFor(iso, NOW);
+  const materialCount = uM(() => mods.reduce((s, m) => s + (m.items || 0), 0), [mods]);
 
   if (!c) return <div className="px-7 py-6 text-zinc-500">강의를 찾을 수 없습니다.</div>;
 
@@ -55,9 +77,9 @@ function CourseDetail({ courseId, openChat }) {
             <div className="text-[11px] mono text-zinc-500">{c.code} · {c.credits}학점 · {c.professor} 교수</div>
             <h1 className="text-[24px] font-semibold tracking-tight mt-1">{c.name}</h1>
             <div className="flex items-center gap-3 text-[11.5px] text-zinc-500 mt-2 mono">
-              <span>주차 {c.weekCurrent}/{c.weekTotal}</span>
+              <span>{mods.length}개 주차</span>
               <span className="h-1 w-1 rounded-full bg-zinc-300"/>
-              <span>{c.materials}개 자료</span>
+              <span>{materialCount}개 자료</span>
               <span className="h-1 w-1 rounded-full bg-zinc-300"/>
               <span>{cAssigns.filter(a=>!a.submitted).length}건 미제출</span>
             </div>
@@ -90,44 +112,44 @@ function CourseDetail({ courseId, openChat }) {
 
         {tab === 'materials' && (
           <div className="divide-y divide-[var(--line-2)]">
-            {mods.map(m => (
-              <div key={m.week} className={`px-5 py-4 flex items-center gap-4 ${m.locked ? 'opacity-55' : ''} ${m.current ? 'bg-[var(--accent-soft)]/40' : ''}`}>
-                <div className="w-12 text-center">
-                  <div className="text-[10px] uppercase mono text-zinc-500">Week</div>
-                  <div className="text-[18px] font-semibold mono">{m.week}</div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[14px] font-medium truncate flex items-center gap-2">
-                    {m.title}
-                    {m.current && <span className="text-[10px] mono px-1.5 py-0.5 rounded-md accent-bg text-white">현재 주차</span>}
+            {modsLoading && (
+              <div className="px-5 py-8 text-center text-[12.5px] text-zinc-500">강의자료를 불러오는 중…</div>
+            )}
+            {!modsLoading && mods.length === 0 && (
+              <div className="px-5 py-8 text-center text-[12.5px] text-zinc-500">강의자료가 없습니다.</div>
+            )}
+            {!modsLoading && mods.map(m => (
+              <div key={m.week} className="px-5 py-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 text-center shrink-0">
+                    <div className="text-[10px] uppercase mono text-zinc-500">Week</div>
+                    <div className="text-[18px] font-semibold mono">{m.week}</div>
                   </div>
-                  <div className="text-[11.5px] text-zinc-500 mt-0.5 mono flex items-center gap-3">
-                    <span>{m.completed}/{m.items} 시청 완료</span>
-                    {m.attended && <span className="text-[var(--ok)]">출석 인정</span>}
-                    {m.locked && <span>잠김 — 공개 예정</span>}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px] font-medium truncate">{m.title}</div>
+                    <div className="text-[11.5px] text-zinc-500 mt-0.5 mono">{m.items}개 항목</div>
                   </div>
-                  <div className="mt-2 h-1 rounded-full bg-zinc-100 overflow-hidden max-w-[260px]">
-                    <div className="h-full rounded-full" style={{ width: `${(m.completed/Math.max(1,m.items))*100}%`, background: c.color }}/>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
                   <a
-                    href={m.locked ? undefined : `https://canvas.ssu.ac.kr/learningx/dashboard?course_id=${courseId}&week=${m.week}`}
-                    target={m.locked ? undefined : '_blank'}
-                    rel="noopener noreferrer"
-                    aria-disabled={m.locked}
-                    onClick={(e) => { if (m.locked) e.preventDefault(); }}
-                    className={`h-8 px-2.5 text-[12px] rounded-md border border-[var(--line)] flex items-center gap-1 ${m.locked ? 'cursor-not-allowed opacity-50' : 'hover:bg-zinc-50'}`}
+                    href={`https://canvas.ssu.ac.kr/learningx/dashboard?course_id=${courseId}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="h-8 px-2.5 text-[12px] rounded-md border border-[var(--line)] flex items-center gap-1 hover:bg-zinc-50 shrink-0"
                   >
-                    <I2.File size={13}/> 자료
+                    <I2.External size={13}/> 열기
                   </a>
-                  <button
-                    disabled={m.locked}
-                    className="h-8 w-8 rounded-md border border-[var(--line)] hover:bg-zinc-50 flex items-center justify-center text-zinc-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <I2.Chev size={14}/>
-                  </button>
                 </div>
+                {m.list?.length > 0 && (
+                  <div className="mt-2.5 pl-16 space-y-1.5">
+                    {m.list.map(it => (
+                      <div key={it.id} className="flex items-center gap-2 text-[12.5px] text-zinc-700">
+                        {it.type === 'Assignment'
+                          ? <I2.Check size={12} className="text-[var(--warn)] shrink-0"/>
+                          : <I2.File size={12} className="text-zinc-400 shrink-0"/>}
+                        <span className="truncate flex-1">{it.title}</span>
+                        <span className="text-[10px] mono text-zinc-400 shrink-0">{_typeLabel(it.type)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
