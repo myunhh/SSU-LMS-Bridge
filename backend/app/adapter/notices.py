@@ -26,11 +26,11 @@ async def list_notices(client: CanvasClient, course_id: int) -> List[Notice]:
             id=n["id"],
             course_id=course_id,
             title=n.get("title", ""),
-            message_snippet=(n.get("message") or "")[:300],
+            message=n.get("message") or "",          # ✅ 전체 본문
             posted_at=n.get("posted_at", n.get("created_at")),
             author=n.get("author", {}).get("display_name", "") if isinstance(n.get("author"), dict) else "",
             html_url=n.get("html_url", ""),
-            is_read=n.get("read_state") == "read",  # ✅ 추가: read_state 파싱
+            is_read=n.get("read_state") == "read",
         )
         for n in items if n.get("id")
     ]
