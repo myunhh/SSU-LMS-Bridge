@@ -16,9 +16,9 @@ class Course(BaseModel):
     name: str
     course_code: str = ""
     term: str = ""
-    professor: str = ""              # ✅ 추가: 담당 교수명
-    credits: Optional[float] = None  # ✅ 추가: 학점
-    progress: Optional[float] = None # ✅ 추가: 진도율 (0.0 ~ 100.0)
+    professor: str = ""
+    credits: Optional[float] = None
+    progress: Optional[float] = None
 
     class Config:
         extra = "ignore"
@@ -31,11 +31,11 @@ class Notice(BaseModel):
     id: int
     course_id: int
     title: str
-    message_snippet: str = ""
+    message: str = ""               # ✅ 전체 본문
     posted_at: Optional[str] = None
     author: str = ""
     html_url: str = ""
-    is_read: bool = False       # ✅ 추가: 읽음 여부
+    is_read: bool = False
 
     class Config:
         extra = "ignore"
@@ -52,8 +52,8 @@ class Assignment(BaseModel):
     points_possible: Optional[float] = None
     submission_types: List[str] = []
     html_url: str = ""
-    description_snippet: str = ""
-    submitted: bool = False     # ✅ 추가: 제출 여부
+    description: str = ""           # ✅ 전체 본문
+    submitted: bool = False
 
     class Config:
         extra = "ignore"
