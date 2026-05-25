@@ -1,14 +1,15 @@
 # backend/app/api/routes/sync.py
 # 동기화 라우트
 # ──────────────────────────────────────────────────────────────────────────────
-#   POST /api/sync         → SyncResult  (세션 갱신 + Canvas 수집)
+#   POST /api/sync         → SyncResult  (세션 갱신 + Canvas 수집 + Notion push)
 #   GET  /api/sync/status  → { running, lastSyncAt }
 #
 # 흐름:
-#   1) 세션 파일 존재 확인 (없으면 503 — 먼저 로그인)
-#   2) auth.load_session() 으로 세션 유효성 검증 + 쿠키 연장 (← auth.py 호출)
-#   3) CanvasClient 로 강의/과제/공지 수집, 개수를 SyncResult 로 반환
-#   (Notion / Obsidian 반영은 🅲 단계에서 추가)
+#   1) 세션 파일 존재 확인 (없으면 503)
+#   2) auth.load_session() 으로 세션 검증 + 쿠키 연장 (← auth.py)
+#   3) CanvasClient 로 강의/과제/공지 수집
+#   4) Notion 이 설정돼 있으면 공지·과제를 Notion DB 로 upsert (← services.notion_services)
+#   (Obsidian Vault 동기화는 강의자료 수집 + Obsidian Local REST 가동이 필요 → 추후)
 # ──────────────────────────────────────────────────────────────────────────────
 from datetime import datetime
 
@@ -18,15 +19,21 @@ from app.adapter.assignments import list_all_deadlines
 from app.adapter.auth import SSULMSAuthPlaywright
 from app.adapter.canvas_client import CanvasClient
 from app.adapter.courses import list_courses
-from app.adapter.notices import list_notices
+from app.adapter.notices import list_all_notices
 from app.config import settings
 from app.logger import logger
 from app.models import SyncResult
+from app.services.notion_services import sync_notion
 
 router = APIRouter()
 
-# 프로세스 메모리 상의 마지막 동기화 상태 (재시작 시 초기화 — 영속화는 추후 DB)
+# 프로세스 메모리 상의 마지막 동기화 상태 (재시작 시 초기화)
 _state: dict = {"running": False, "last_sync_at": None}
+
+
+def _is_configured(*vals) -> bool:
+    """값이 실제로 채워졌는지 (빈값/placeholder 'xxxx' 제외)."""
+    return all(v and "xxxx" not in str(v).lower() for v in vals)
 
 
 @router.post("/sync", response_model=SyncResult)
@@ -70,11 +77,51 @@ async def trigger_sync() -> SyncResult:
             except Exception as e:
                 errors.append(f"assignments: {e}")
 
-            for cid in course_ids:
-                try:
-                    notices.extend(await list_notices(client, cid))
-                except Exception as e:
-                    errors.append(f"notices[{cid}]: {e}")
+            try:
+                notices = await list_all_notices(client, course_ids)
+            except Exception as e:
+                errors.append(f"notices: {e}")
+
+        # 3) Notion push (설정된 경우에만)
+        if _is_configured(settings.notion_token, settings.notion_root_page_id):
+            try:
+                name_map = {c.id: c.name for c in courses}
+                notice_payload = [
+                    {
+                        "title": n.title,
+                        "course_name": name_map.get(n.course_id, ""),
+                        "date": n.posted_at,
+                        "pinned": False,
+                        "unread": not n.is_read,
+                    }
+                    for n in notices if n.posted_at
+                ]
+                assign_payload = [
+                    {
+                        "title": a.title,
+                        "course_name": name_map.get(a.course_id, ""),
+                        "due": a.due_at,
+                        "type": (a.submission_types[0] if a.submission_types else "기타"),
+                        "weight": a.points_possible or 0,
+                        "submitted": a.submitted,
+                    }
+                    for a in assignments if a.due_at
+                ]
+                pushed = await sync_notion(
+                    notices=notice_payload,
+                    assignments=assign_payload,
+                    notion_mcp_url=settings.notion_mcp_url,
+                    notion_token=settings.notion_token,
+                )
+                logger.info(
+                    f"[Sync] Notion push — 공지 {pushed.get('notices_added')} · "
+                    f"과제 {pushed.get('assignments_added')} 신규"
+                )
+            except Exception as e:
+                logger.exception("[Sync] Notion push 실패")
+                errors.append(f"notion: {e}")
+        else:
+            logger.info("[Sync] Notion 미설정 → push 건너뜀")
 
     except HTTPException:
         raise
@@ -89,7 +136,7 @@ async def trigger_sync() -> SyncResult:
         courses=len(courses),
         assignments=len(assignments),
         notices=len(notices),
-        materials=0,  # 자료/파일 다운로드는 🅲 단계
+        materials=0,  # Obsidian Vault 동기화는 추후
         errors=errors,
     )
     _state["last_sync_at"] = result.synced_at
