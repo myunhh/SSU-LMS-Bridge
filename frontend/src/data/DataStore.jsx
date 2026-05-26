@@ -10,12 +10,28 @@
 //   - 초기 로드는 useEffect 안에서 GET 요청
 //   - 페이지 코드는 한 줄도 바꿀 필요 없음 (인터페이스 동일)
 // ──────────────────────────────────────────────────────────────────────────────
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import * as seed from './mockData';
 import * as LmsAuthApi from '../api/lmsAuth';
 import * as Api from '../api/index';
 
 const DataContext = createContext(null);
+
+// ── 표시용 헬퍼 ────────────────────────────────────────────────
+function _relTime(iso, now = new Date()) {
+  if (!iso) return '';
+  const ms = now - new Date(iso);
+  if (ms < 0) return '예정';
+  if (ms < 60_000) return '방금';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}분 전`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}시간 전`;
+  return `${Math.floor(ms / 86_400_000)}일 전`;
+}
+function _fmtShort(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
 
 // ── 훅 ────────────────────────────────────────────────────────────────────────
 export function useData() {
@@ -40,10 +56,10 @@ export function DataProvider({ children, onToast, authUser }) {
   const [courses,       setCourses]       = useState(seed.COURSES);
   const [assignments,   setAssignments]   = useState(seed.ASSIGNMENTS);
   const [notices,       setNotices]       = useState(seed.NOTICES);
-  const [notifications, setNotifications] = useState(seed.NOTIFICATIONS);
-  const [activity,      setActivity]      = useState(seed.ACTIVITY);
-  const [conversations, setConversations] = useState(seed.CONVERSATIONS);
-  const [chatSeed,      setChatSeed]      = useState(seed.CHAT_SEED);
+  // 알림은 공지/과제에서 파생 (아래 useMemo). 활동·대화는 실제 동작으로 채워지도록 비움.
+  const [activity,      setActivity]      = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [chatSeed,      setChatSeed]      = useState([]);
   const [connectors,    setConnectors]    = useState(seed.CONNECTORS);
 
   // 데이터 로딩 상태 — 초기 fetch / refetch 중일 때 true
@@ -79,18 +95,6 @@ export function DataProvider({ children, onToast, authUser }) {
   // onToast 가 매 렌더마다 새로 만들어지면 effect 가 무한 루프 되므로 의도적으로 deps 비움
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // 액션: 알림
-  // ──────────────────────────────────────────────────────────────────────────
-  const markNotificationRead = useCallback((id) => {
-    setNotifications(ns => ns.map(n => n.id === id ? { ...n, unread: false } : n));
-  }, []);
-
-  const markAllNotificationsRead = useCallback(() => {
-    setNotifications(ns => ns.map(n => ({ ...n, unread: false })));
-    onToast?.({ kind: 'success', text: '모든 알림을 읽음으로 표시했습니다.' });
-  }, [onToast]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // 액션: 공지
@@ -268,9 +272,80 @@ export function DataProvider({ children, onToast, authUser }) {
   }, [onToast]);
 
   // ──────────────────────────────────────────────────────────────────────────
+  // 파생: 강의 지표 보강 (실제 공지/과제 기반)
+  //   unread  = 해당 강의 미열람 공지 수
+  //   dueSoon = 해당 강의 7일 내 미제출 과제 수
+  //   (progress/materials/weekCurrent 는 백엔드/추가 fetch 필요 → 기본값 유지)
+  // ──────────────────────────────────────────────────────────────────────────
+  const coursesEnriched = useMemo(() => {
+    const weekMs = 7 * 86400000;
+    return courses.map(c => {
+      const unread = notices.filter(n => n.course === c.id && n.unread).length;
+      const dueSoon = assignments.filter(a => {
+        if (a.course !== c.id || a.submitted || !a.due) return false;
+        const diff = new Date(a.due) - now;
+        return diff >= 0 && diff <= weekMs;
+      }).length;
+      return { ...c, unread, dueSoon };
+    });
+  }, [courses, notices, assignments, now]);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 파생: 알림 (마감임박 과제 + 미열람 공지)
+  // ──────────────────────────────────────────────────────────────────────────
+  const notifications = useMemo(() => {
+    const weekMs = 7 * 86400000;
+    const courseOf = (id) => coursesEnriched.find(c => c.id === id);
+    const out = [];
+
+    // 마감 임박 (미제출, 7일 내) — 가까운 순
+    assignments
+      .filter(a => !a.submitted && a.due && (new Date(a.due) - now) >= 0 && (new Date(a.due) - now) <= weekMs)
+      .sort((x, y) => new Date(x.due) - new Date(y.due))
+      .forEach(a => {
+        const c = courseOf(a.course);
+        const days = Math.floor((new Date(a.due) - now) / 86400000);
+        out.push({
+          id: `assign-${a.id}`, kind: 'deadline',
+          course: c?.name || '', courseColor: c?.color || 'var(--muted)',
+          title: a.title,
+          body: `${_fmtShort(a.due)} 마감${days === 0 ? ' · 오늘' : ` · D-${days}`}`,
+          time: _relTime(a.due, now), unread: true,
+        });
+      });
+
+    // 미열람 공지 — 최신 순
+    notices
+      .filter(n => n.unread)
+      .sort((x, y) => new Date(y.date) - new Date(x.date))
+      .forEach(n => {
+        const c = courseOf(n.course);
+        out.push({
+          id: `notice-${n.id}`, kind: 'notice',
+          course: c?.name || '', courseColor: c?.color || 'var(--muted)',
+          title: n.title, body: n.snippet || '',
+          time: _relTime(n.date, now), unread: true,
+        });
+      });
+
+    return out;
+  }, [assignments, notices, coursesEnriched, now]);
+
+  // 알림 읽음 — 공지 알림은 원본 공지를 읽음 처리, 마감 알림은 dismiss 개념 없음
+  const markNotificationRead = useCallback((id) => {
+    if (typeof id === 'string' && id.startsWith('notice-')) {
+      markNoticeRead(Number(id.slice('notice-'.length)));
+    }
+  }, [markNoticeRead]);
+
+  const markAllNotificationsRead = useCallback(() => {
+    markAllNoticesRead();
+  }, [markAllNoticesRead]);
+
+  // ──────────────────────────────────────────────────────────────────────────
   // 파생 헬퍼 (selector 패턴)
   // ──────────────────────────────────────────────────────────────────────────
-  const getCourseById   = useCallback((id) => courses.find(c => c.id === id),     [courses]);
+  const getCourseById   = useCallback((id) => coursesEnriched.find(c => c.id === id), [coursesEnriched]);
   const getAssignmentsByCourse = useCallback((cid) => assignments.filter(a => a.course === cid), [assignments]);
   const getNoticesByCourse     = useCallback((cid) => notices.filter(n => n.course === cid),     [notices]);
   const getModulesByCourse     = useCallback((cid) => modules[cid] || modules[3] || [],          [modules]);
@@ -278,8 +353,8 @@ export function DataProvider({ children, onToast, authUser }) {
   const value = {
     // 정적 데이터
     user, semester, now, suggestions, calendar,
-    // 동적 데이터
-    courses, assignments, notices, notifications, activity,
+    // 동적 데이터 (courses 는 unread/dueSoon 보강본)
+    courses: coursesEnriched, assignments, notices, notifications, activity,
     conversations, chatSeed, connectors,
     // 로딩 / 동기화 상태
     loading, syncing, lastSyncAt,

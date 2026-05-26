@@ -1,6 +1,7 @@
 /* Chat / LLM Assistant view */
 import { useState as chS, useEffect as chE, useRef as chR } from 'react';
 import { useData } from '../data/DataStore';
+import { openChatStream } from '../api/chat';
 import { CHAT_MODEL_LABEL, CHAT_FOOTER_NOTE, CHAT_RAG_ENABLED } from '../data/uiConfig';
 import Ich from './icons';
 
@@ -21,27 +22,45 @@ function ChatView() {
     appendChatMessage, startNewConversation, selectConversation,
   } = useData();
 
-  const [msgs, setMsgs] = chS(chatSeed);
+  // 실제 LLM 채팅은 빈 대화로 시작 (mock seed 카드는 사용하지 않음)
+  const [msgs, setMsgs] = chS([]);
   const [input, setInput] = chS('');
   const [streaming, setStreaming] = chS(false);
   const scrollRef = chR(null);
 
   chE(() => { scrollRef.current?.scrollTo({ top: 99999, behavior: 'smooth' }); }, [msgs, streaming]);
 
+  // 백엔드 WS /api/chat 로 스트리밍 — ChatService(litellm + MCP tool-use)
   const send = (text) => {
     const v = text ?? input;
-    if (!v.trim()) return;
+    if (!v.trim() || streaming) return;
     const now = new Date();
     const t = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    setMsgs(m => [...m, { role: 'user', text: v, t }]);
+    const userMsg = { role: 'user', text: v, t };
+
+    // 직전 실제 대화 + 새 user 메시지 → 백엔드 페이로드
+    const history = [...msgs, userMsg]
+      .filter(m => m.text && !m.error)
+      .map(m => ({ role: m.role, content: m.text }));
+
+    // user 메시지 + 스트리밍될 assistant placeholder 추가
+    setMsgs(m => [...m, userMsg, { role: 'assistant', t, text: '', live: true }]);
     setInput('');
     setStreaming(true);
-    setTimeout(() => {
-      setMsgs(m => [...m, { role: 'assistant', t, text:
-        '강의자료를 살펴봤어요. 아래에 정리해 드릴게요. 더 깊이 알아보고 싶은 부분이 있으면 알려주세요.',
-        rich: 'generic' }]);
-      setStreaming(false);
-    }, 1100);
+
+    let acc = '';
+    const replaceLast = (patch) => setMsgs(m => {
+      const copy = [...m];
+      copy[copy.length - 1] = { role: 'assistant', t, ...patch };
+      return copy;
+    });
+
+    openChatStream({
+      messages: history,
+      onText: (delta) => { acc += delta; replaceLast({ text: acc, live: true }); },
+      onError: (msg) => { replaceLast({ text: acc || `⚠️ ${msg}`, error: true }); setStreaming(false); },
+      onDone: () => { replaceLast({ text: acc || '(응답이 비어 있습니다)' }); setStreaming(false); },
+    });
   };
 
   return (
@@ -77,8 +96,12 @@ function ChatView() {
       <div className="flex-1 flex flex-col bg-[var(--bg)]">
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
           <div className="max-w-[760px] mx-auto space-y-5">
+            {msgs.length === 0 && (
+              <div className="text-center text-[12.5px] text-zinc-400 mt-20">
+                강의·과제·공지에 대해 무엇이든 물어보세요.
+              </div>
+            )}
             {msgs.map((m, i) => <Bubble key={i} m={m}/>)}
-            {streaming && <Bubble m={{ role: 'assistant', text: '', streaming: true, t: '' }}/>}
           </div>
         </div>
 
@@ -135,7 +158,7 @@ function Bubble({ m }) {
       <div className="flex-1 min-w-0">
         <div className="text-[11px] mono text-zinc-500 mb-1">학습 비서 · {m.t}</div>
         <div className="ssu-card p-4 text-[13.5px] leading-relaxed text-zinc-800">
-          {m.streaming ? <span className="typing">자료 검색 중</span> : <RichAnswer kind={m.rich} text={m.text}/>}
+          {(m.live && !m.text) ? <span className="typing">생각 중…</span> : <RichAnswer kind={m.rich} text={m.text}/>}
         </div>
       </div>
     </div>
