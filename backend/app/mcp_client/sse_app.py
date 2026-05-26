@@ -12,23 +12,23 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 
-def build_mcp_sse_app(server: Server, mount_prefix: str) -> Starlette:
+def build_mcp_sse_app(server: Server, mount_prefix: str = "") -> Starlette:
     """MCP Server 를 SSE transport 로 노출하는 Starlette 앱을 빌드.
 
     Args:
         server: mcp.server.Server 인스턴스 (factory 가 반환한 것).
-        mount_prefix: 이 앱이 마운트될 외부 prefix (예: "/mcp/notion").
-            SSE event 로 클라이언트에 알려줄 message POST 경로를 절대경로로
-            구성하기 위해 필요하다. starlette 의 Mount 가 들어오는 요청에서
-            prefix 를 떼고 매칭하므로, 내부 Route 는 prefix 없이 등록한다.
+        mount_prefix: (현재 미사용) 과거 호환용 인자.
 
     반환된 앱은 두 엔드포인트를 갖는다.
     - GET  {prefix}/sse           — SSE 핸드셰이크 (read/write 스트림 개통)
     - POST {prefix}/messages/...  — 클라이언트가 보내는 JSON-RPC 메시지
+
+    ⚠️ SseServerTransport 에는 **앱 내부 상대경로("/messages/")** 만 넘긴다.
+       mcp SDK(server/sse.py)가 SSE endpoint 이벤트를 보낼 때 ASGI root_path
+       (= 마운트 prefix, 예 "/mcp/notion") 를 자동으로 앞에 붙이므로, 여기서
+       prefix 를 또 붙이면 "/mcp/notion/mcp/notion/messages/" 처럼 중복된다.
     """
-    # 클라이언트가 POST 해야 할 절대 경로 (SSE event 로 통지됨)
-    messages_endpoint = f"{mount_prefix.rstrip('/')}/messages/"
-    transport = SseServerTransport(messages_endpoint)
+    transport = SseServerTransport("/messages/")
 
     async def handle_sse(request: Request) -> Response:
         async with transport.connect_sse(

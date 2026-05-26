@@ -82,6 +82,14 @@ class ChatService:
                     stream=True,
                     api_key=self.api_key or None,
                 )
+            except litellm.AuthenticationError:
+                logger.warning("[LLM] 인증 실패 — API 키 미설정/무효")
+                yield {
+                    "type": "error",
+                    "message": "LLM API 키가 설정되지 않았거나 유효하지 않습니다. "
+                               ".env 의 LLM_API_KEY 를 확인하세요.",
+                }
+                return
             except Exception as e:
                 logger.exception("[LLM] acompletion 실패")
                 yield {"type": "error", "message": str(e)}

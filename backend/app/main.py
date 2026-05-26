@@ -10,6 +10,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
 from contextlib import asynccontextmanager
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -23,6 +25,9 @@ from app.mcp_client.setup import setup_mcp
 API_TITLE = "SSU LMS Bridge API"
 API_VERSION = "0.1.0"
 
+# 매일 정해진 시각(SYNC_HOUR)에 자동 동기화하는 스케줄러
+scheduler = AsyncIOScheduler()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,11 +38,24 @@ async def lifespan(app: FastAPI):
     log.info(f"  · 세션 캐시      : {settings.session_cache_abspath}")
     log.info(f"  · CORS 허용 출처 : {settings.cors_origins}")
     log.info(f"  · LLM provider   : {settings.llm_provider} ({settings.llm_model})")
-    # TODO(🅴): APScheduler 로 매일 settings.sync_hour 시 자동 동기화 등록
+
+    # ── 예약 동기화 (매일 SYNC_HOUR 시) ──────────────────────
+    scheduler.add_job(
+        sync.run_scheduled_sync,
+        CronTrigger(hour=settings.sync_hour, minute=0),
+        id="daily_sync",
+        replace_existing=True,
+        misfire_grace_time=3600,  # 서버가 잠시 꺼졌다 켜져도 1시간 내면 실행
+    )
+    scheduler.start()
+    job = scheduler.get_job("daily_sync")
+    nxt = job.next_run_time.strftime("%Y-%m-%d %H:%M") if job and job.next_run_time else "—"
+    log.info(f"  · 예약 동기화    : 매일 {settings.sync_hour:02d}:00 (다음 실행 {nxt})")
 
     yield
 
     # ── 종료 ──────────────────────────────────────────────────
+    scheduler.shutdown(wait=False)
     log.info(f"{API_TITLE} 종료")
 
 

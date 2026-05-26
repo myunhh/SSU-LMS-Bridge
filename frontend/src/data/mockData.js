@@ -37,8 +37,8 @@ const USER = {
 };
 
 // ── 현재 학기 / 시점 ───────────────────────────────────────────────────────────
-// NOW 는 모든 D-day 계산의 기준 시각. `new Date()` 로 교체.
-const NOW = new Date('2026-05-09T10:00:00');
+// NOW 는 모든 D-day 계산 + 캘린더 기준 시각. 실제 현재 시각 사용.
+const NOW = new Date();
 
 const SEMESTER = {
   year: 2026,

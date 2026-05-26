@@ -1,19 +1,20 @@
 # backend/app/api/routes/sync.py
-# 동기화 라우트
+# 동기화 라우트 + 공용 동기화 로직
 # ──────────────────────────────────────────────────────────────────────────────
-#   POST /api/sync         → SyncResult  (세션 갱신 + Canvas 수집 + Notion push)
+#   POST /api/sync         → SyncResult  (수동 동기화)
 #   GET  /api/sync/status  → { running, lastSyncAt }
+#   perform_sync()         → 핵심 로직 (라우트 + APScheduler 예약 작업 공용)
+#   run_scheduled_sync()   → 스케줄러용 래퍼 (예외를 로그로만 처리)
 #
 # 흐름:
-#   1) 세션 파일 존재 확인 (없으면 503)
+#   1) 세션 파일 존재 확인 (없으면 SyncSessionError 503)
 #   2) auth.load_session() 으로 세션 검증 + 쿠키 연장 (← auth.py)
 #   3) CanvasClient 로 강의/과제/공지 수집
-#   4) Notion 이 설정돼 있으면 공지·과제를 Notion DB 로 upsert (← services.notion_services)
-#   (Obsidian Vault 동기화는 강의자료 수집 + Obsidian Local REST 가동이 필요 → 추후)
+#   4) Notion 이 설정돼 있으면 공지·과제를 Notion DB 로 upsert
 # ──────────────────────────────────────────────────────────────────────────────
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException
 
 from app.adapter.assignments import list_all_deadlines
 from app.adapter.auth import SSULMSAuthPlaywright
@@ -31,19 +32,25 @@ router = APIRouter()
 _state: dict = {"running": False, "last_sync_at": None}
 
 
+class SyncSessionError(Exception):
+    """세션 없음/만료 — 재로그인 필요. (HTTP status + detail 운반)"""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(detail)
+
+
 def _is_configured(*vals) -> bool:
     """값이 실제로 채워졌는지 (빈값/placeholder 'xxxx' 제외)."""
     return all(v and "xxxx" not in str(v).lower() for v in vals)
 
 
-@router.post("/sync", response_model=SyncResult)
-async def trigger_sync() -> SyncResult:
+async def perform_sync() -> SyncResult:
+    """동기화 핵심 로직 (수동/예약 공용). 세션 문제는 SyncSessionError 로 raise."""
     path = settings.session_cache_abspath
     if not path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="LMS 세션이 없습니다. 먼저 로그인하세요.",
-        )
+        raise SyncSessionError(503, "LMS 세션이 없습니다. 먼저 로그인하세요.")
 
     _state["running"] = True
     errors: list[str] = []
@@ -61,10 +68,7 @@ async def trigger_sync() -> SyncResult:
         logger.info("[Sync] 세션 검증/연장 중…")
         ok = await auth.load_session()
         if not ok:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="LMS 세션이 만료되었습니다. 다시 로그인해주세요.",
-            )
+            raise SyncSessionError(401, "LMS 세션이 만료되었습니다. 다시 로그인해주세요.")
 
         # 2) Canvas 데이터 수집
         async with CanvasClient(session_file=str(path)) as client:
@@ -123,7 +127,7 @@ async def trigger_sync() -> SyncResult:
         else:
             logger.info("[Sync] Notion 미설정 → push 건너뜀")
 
-    except HTTPException:
+    except SyncSessionError:
         raise
     except Exception as e:
         logger.exception("[Sync] 실패")
@@ -145,6 +149,25 @@ async def trigger_sync() -> SyncResult:
         f"공지 {result.notices} · 오류 {len(errors)}"
     )
     return result
+
+
+async def run_scheduled_sync() -> None:
+    """APScheduler 예약 작업용 래퍼. 예외를 밖으로 던지지 않고 로그로만 남긴다."""
+    logger.info("[Sync] 예약 동기화 시작")
+    try:
+        await perform_sync()
+    except SyncSessionError as e:
+        logger.warning(f"[Sync] 예약 동기화 건너뜀 — {e.detail}")
+    except Exception:
+        logger.exception("[Sync] 예약 동기화 실패")
+
+
+@router.post("/sync", response_model=SyncResult)
+async def trigger_sync() -> SyncResult:
+    try:
+        return await perform_sync()
+    except SyncSessionError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.get("/sync/status")
