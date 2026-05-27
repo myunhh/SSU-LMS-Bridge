@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
+import { useData } from '../data/DataStore';
 import { SIGNUP_STEPS as STEPS, SIGNUP_INITIAL as INITIAL } from '../data/uiConfig';
 import { STUDENT_ID_REGEX } from '../auth/AccountStore';
 
@@ -17,6 +18,7 @@ export default function SignupPage() {
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const { signup } = useAuth();
+  const { loginLms } = useData();
   const navigate = useNavigate();
 
   const set = (k, v) => {
@@ -87,6 +89,20 @@ export default function SignupPage() {
     const e = validate(step);
     if (Object.keys(e).length) { setErrors(e); return; }
     setErrors({});
+
+    // Step 2 → 3 전환 시 실제 백엔드 SSO 로그인 수행.
+    // 여기서 Playwright 세션이 만들어져야 가입 완료 후 대시보드에서 /api/courses 가 동작한다.
+    if (step === 2) {
+      setSubmitting(true);
+      const res = await loginLms(form.lmsId.trim(), form.lmsPassword);
+      setSubmitting(false);
+      if (!res.ok) {
+        setErrors({ lmsPassword: res.error || 'LMS 로그인에 실패했습니다.' });
+        return;
+      }
+      setStep(s => s + 1);
+      return;
+    }
 
     // 마지막 단계가 아니면 다음으로
     if (step < 5) { setStep(s => s + 1); return; }
@@ -211,6 +227,7 @@ export default function SignupPage() {
               <InfoBox accent>
                 숭실대 스마트캠퍼스(canvas.ssu.ac.kr) 로그인 정보입니다.
                 비밀번호는 암호화되어 저장되며 LMS 인증에만 사용됩니다.
+                "다음" 클릭 시 백엔드가 SSO 로그인을 수행하므로 5~10초 정도 걸려요.
               </InfoBox>
               <Field label="LMS 아이디 (학번)" error={errors.lmsId}>
                 <input className="ssu-input mono" value={form.lmsId} onChange={e => set('lmsId', e.target.value)} placeholder="20231234" autoFocus/>
@@ -298,7 +315,11 @@ export default function SignupPage() {
                   <path d="M21 12a9 9 0 1 1-6.22-8.56"/>
                 </svg>
               )}
-              {step === 5 ? (submitting ? '가입 중…' : '설정 완료 →') : '다음 →'}
+              {step === 5
+                ? (submitting ? '가입 중…' : '설정 완료 →')
+                : step === 2 && submitting
+                  ? 'LMS 로그인 중…'
+                  : '다음 →'}
             </button>
           </div>
         </div>

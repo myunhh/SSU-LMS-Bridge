@@ -154,6 +154,21 @@ export async function login(studentId, password) {
 }
 
 /**
+ * 현재 세션의 LMS 자격증명을 반환. (백엔드 /api/lms/login 자동 재시도용)
+ *
+ * ⚠️ 데모 단계에서 localStorage 평문 저장. 운영 단계에선 서버 측 vault 로 옮겨야 함.
+ * @returns {{ id: string, password: string } | null}
+ */
+export function getLmsCredentials() {
+  const studentId = localStorage.getItem(K_SESSION);
+  if (!studentId) return null;
+  const list = readAccounts();
+  const acc = list.find(a => a.studentId === studentId);
+  if (!acc?.lms?.id || !acc?.lms?.password) return null;
+  return { id: acc.lms.id, password: acc.lms.password };
+}
+
+/**
  * 현재 로그인된 사용자 정보를 반환. (앱 시작 시 AuthProvider 초기값으로 사용)
  */
 export async function getCurrentUser() {

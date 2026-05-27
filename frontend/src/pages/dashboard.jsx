@@ -23,6 +23,14 @@ const daysUntilFor = (iso, NOW) => {
   return { label: `D-${days}`, kind: 'later', n: days };
 };
 const typeIcon = (t) => ({ report: Icon.File, code: Icon.Code, quiz: Icon.Quiz, essay: Icon.Essay, problem: Icon.File }[t] || Icon.File);
+const _relTime = (iso, now) => {
+  if (!iso) return '';
+  const ms = now - new Date(iso);
+  if (ms < 60_000) return '방금 전';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}분 전`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}시간 전`;
+  return `${Math.floor(ms / 86_400_000)}일 전`;
+};
 
 /* ---------- Dashboard ---------- */
 function Dashboard({ openCourse, openChat }) {
@@ -30,7 +38,7 @@ function Dashboard({ openCourse, openChat }) {
     courses: COURSES, assignments: ASSIGNMENTS, notices: NOTICES, activity: ACTIVITY,
     user: USER, semester: SEMESTER, now: NOW,
     getCourseById, markNoticeRead, markAllNoticesRead, toggleAssignmentSubmit,
-    triggerSync, syncing,
+    triggerSync, syncing, lastSyncAt,
   } = useData();
   const courseById = getCourseById;
   const daysUntil = (iso) => daysUntilFor(iso, NOW);
@@ -200,7 +208,14 @@ function Dashboard({ openCourse, openChat }) {
 
           <div className="ssu-card">
             <header className="px-5 pt-4 pb-2 flex items-center justify-between">
-              <div className="text-[14.5px] font-semibold">동기화 활동</div>
+              <div>
+                <div className="text-[14.5px] font-semibold">동기화 활동</div>
+                {lastSyncAt && (
+                  <div className="text-[11px] mono text-zinc-500 mt-0.5">
+                    마지막 동기화 {_relTime(lastSyncAt.toISOString(), NOW)}
+                  </div>
+                )}
+              </div>
               <span className="text-[11px] mono text-[var(--ok)] flex items-center gap-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-[var(--ok)]"/> 정상
               </span>

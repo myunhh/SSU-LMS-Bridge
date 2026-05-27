@@ -14,6 +14,14 @@ import { createContext, useContext, useState, useCallback, useEffect, useMemo } 
 import * as seed from './mockData';
 import * as LmsAuthApi from '../api/lmsAuth';
 import * as Api from '../api/index';
+import { getLmsCredentials } from '../auth/AccountStore';
+
+// 백엔드가 errors 배열에 담아 보낸 메시지가 LMS 인증 실패인지 판별.
+// (HTTPStatusError → 401/403/419 가 라우트에서 401 로 변환되거나 errors 문자열에 401 포함)
+function _isAuthError(errors) {
+  if (!errors?.length) return false;
+  return errors.some(e => /401|403|419|unauthor|세션/i.test(String(e)));
+}
 
 const DataContext = createContext(null);
 
@@ -74,12 +82,20 @@ export function DataProvider({ children, onToast, authUser }) {
   const [lmsSession, setLmsSession] = useState(null);
   const [lmsBusy, setLmsBusy] = useState(false);   // 로그인 / 갱신 중
 
-  // 앱 시작 시 한 번 세션 상태 조회 + 초기 데이터 로드
+  // 앱 시작 시 한 번 세션 상태 조회.
+  // 데이터 fetch 는 아래 effect 가 lmsSession.active 가 true 가 된 시점에 수행.
+  // (세션이 없는 가입 화면에서 503 토스트가 뜨지 않도록 분리)
   useEffect(() => {
     LmsAuthApi.getLmsSessionStatus().then(s => setLmsSession(s));
+    // 마지막 동기화 시각도 백엔드에서 받아오면 페이지 새로고침 후에도 보존된다.
+    Api.fetchSyncStatus()
+      .then(s => { if (s?.lastSyncAt) setLastSyncAt(new Date(s.lastSyncAt)); })
+      .catch(() => { /* 백엔드 미기동 — 무시 */ });
+  }, []);
 
-    // 백엔드 라우트 준비 전엔 USE_MOCK=true 라 seed 와 같은 값이 돌아오지만,
-    // 라우트가 채워지면 자동으로 실제 데이터로 갱신된다.
+  // LMS 세션이 활성화되면 (= 가입 후 loginLms 성공, 또는 앱 재시작 후 캐시 유효) 데이터 fetch.
+  useEffect(() => {
+    if (!lmsSession?.active) return;
     setLoading(true);
     Api.fetchInitialBundle()
       .then(({ courses, assignments, notices }) => {
@@ -88,13 +104,13 @@ export function DataProvider({ children, onToast, authUser }) {
         if (notices?.length)     setNotices(notices);
       })
       .catch(err => {
-        console.warn('[DataStore] 초기 데이터 로드 실패:', err);
-        onToast?.({ kind: 'error', text: '초기 데이터 로드에 실패했습니다.' });
+        console.warn('[DataStore] 데이터 로드 실패:', err);
+        onToast?.({ kind: 'error', text: '데이터 로드에 실패했습니다.' });
       })
       .finally(() => setLoading(false));
-  // onToast 가 매 렌더마다 새로 만들어지면 effect 가 무한 루프 되므로 의도적으로 deps 비움
+  // savedAt 변화는 무시 — 같은 세션 갱신엔 refetch 불필요
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [lmsSession?.active]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // 액션: 공지
@@ -133,9 +149,28 @@ export function DataProvider({ children, onToast, authUser }) {
     setSyncing(true);
     onToast?.({ kind: 'info', text: '동기화를 시작했습니다…' });
     try {
-      const result = await Api.triggerSync();
+      let result = await Api.triggerSync();
 
-      // 동기화 후 데이터 새로고침 (실 모드일 때만 의미 있음, mock 모드면 같은 값)
+      // Canvas 쿠키 만료 등으로 sync 가 401 류 오류를 돌려준 경우,
+      // 저장된 LMS 자격증명으로 자동 재로그인 후 1회 재시도.
+      // (load_session 은 lms.ssu.ac.kr 만 갱신하므로 Canvas 만료엔 무력)
+      if (_isAuthError(result.errors)) {
+        const creds = getLmsCredentials();
+        if (creds?.id && creds?.password) {
+          onToast?.({ kind: 'info', text: 'LMS 세션 만료 — 자동 재로그인 중…' });
+          const r = await LmsAuthApi.lmsLogin(creds.id, creds.password);
+          if (r.ok) {
+            setLmsSession({ active: true, userInfo: r.userInfo, savedAt: r.savedAt });
+            result = await Api.triggerSync();
+          } else {
+            onToast?.({ kind: 'error', text: r.error || '자동 재로그인 실패 — Connectors 페이지에서 다시 시도해주세요.' });
+          }
+        } else {
+          onToast?.({ kind: 'error', text: 'LMS 세션이 만료됐고 저장된 비밀번호가 없습니다. Connectors 에서 재로그인 해주세요.' });
+        }
+      }
+
+      // 동기화 후 데이터 새로고침 (성공/부분실패 모두 시도 — 일부라도 들어왔을 수 있음)
       try {
         const { courses: nc, assignments: na, notices: nn } = await Api.fetchInitialBundle();
         if (nc?.length) setCourses(nc);
@@ -200,10 +235,30 @@ export function DataProvider({ children, onToast, authUser }) {
     }
   }, [onToast]);
 
-  /** 세션 즉시 갱신 (사용자가 "재발급" 버튼 클릭) */
+  /** 세션 즉시 갱신 (사용자가 "재발급" 버튼 클릭).
+   * 저장된 LMS 자격증명이 있으면 full Playwright 재로그인 (Canvas 쿠키까지 갱신).
+   * 없으면 metadata refresh (load_session) 만. */
   const refreshLms = useCallback(async () => {
     setLmsBusy(true);
     try {
+      const creds = getLmsCredentials();
+      if (creds?.id && creds?.password) {
+        // full SSO 재로그인 — Canvas 쿠키 만료 케이스까지 해결
+        const r = await LmsAuthApi.lmsLogin(creds.id, creds.password);
+        if (r.ok) {
+          setLmsSession({ active: true, userInfo: r.userInfo, savedAt: r.savedAt });
+          setActivity(act => [
+            { t: '방금 전', text: 'LMS 재로그인 — 세션 재발급', kind: 'auth', meta: '저장된 자격증명 사용' },
+            ...act,
+          ]);
+          onToast?.({ kind: 'success', text: 'LMS 세션을 재발급했습니다.' });
+          return { ok: true, savedAt: r.savedAt };
+        }
+        onToast?.({ kind: 'error', text: r.error || '재로그인 실패 — 비밀번호를 확인해주세요.' });
+        return r;
+      }
+
+      // 자격증명 없음 — 기존 metadata refresh
       const res = await LmsAuthApi.refreshLmsSession();
       if (res.ok) {
         setLmsSession(s => s ? { ...s, savedAt: res.savedAt } : s);

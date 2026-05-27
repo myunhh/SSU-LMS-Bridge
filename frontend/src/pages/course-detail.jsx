@@ -174,7 +174,10 @@ function CourseDetail({ courseId, openChat }) {
                     {n.pinned && <I2.Pin size={12} className="text-[var(--warn)]"/>}
                     {n.title}
                   </div>
-                  <div className="text-[11px] text-zinc-500 mono mt-0.5">{fmt2(n.date)}</div>
+                  {n.snippet && (
+                    <div className="text-[12px] text-zinc-600 mt-1 line-clamp-2">{n.snippet}</div>
+                  )}
+                  <div className="text-[11px] text-zinc-500 mono mt-0.5">{fmt2(n.date)}{n.author ? ` · ${n.author}` : ''}</div>
                 </div>
                 <span className="text-zinc-400"><I2.Chev size={15}/></span>
               </button>
@@ -190,19 +193,22 @@ function CourseDetail({ courseId, openChat }) {
             {cAssigns.map(a => {
               const d = dU(a.due);
               return (
-                <div key={a.id} className="px-5 py-3 flex items-center gap-4">
+                <div key={a.id} className="px-5 py-3 flex items-start gap-4">
                   <button
                     onClick={() => toggleAssignmentSubmit(a.id)}
-                    className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${a.submitted ? 'bg-emerald-50 text-[var(--ok)] hover:bg-emerald-100' : 'bg-zinc-50 text-zinc-500 hover:bg-zinc-100'}`}
+                    className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors shrink-0 ${a.submitted ? 'bg-emerald-50 text-[var(--ok)] hover:bg-emerald-100' : 'bg-zinc-50 text-zinc-500 hover:bg-zinc-100'}`}
                     title={a.submitted ? '제출 취소' : '제출 완료로 표시'}
                   >
                     {a.submitted ? <I2.Check size={15}/> : <I2.File size={15}/>}
                   </button>
                   <div className="flex-1 min-w-0">
                     <div className="text-[13.5px] font-medium truncate">{a.title}</div>
+                    {a.snippet && (
+                      <div className="text-[12px] text-zinc-600 mt-1 line-clamp-2">{a.snippet}</div>
+                    )}
                     <div className="text-[11px] text-zinc-500 mono mt-0.5">비중 {a.weight}% · {fmt2(a.due)}</div>
                   </div>
-                  <div className={`text-[12px] mono ${a.submitted ? 'text-[var(--ok)]' : d.tone}`}>
+                  <div className={`text-[12px] mono pt-1.5 shrink-0 ${a.submitted ? 'text-[var(--ok)]' : d.tone}`}>
                     {a.submitted ? '제출 완료' : d.label}
                   </div>
                 </div>

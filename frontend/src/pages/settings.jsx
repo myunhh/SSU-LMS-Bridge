@@ -1,7 +1,10 @@
 /* Settings view */
 import { useState as stS } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Ist from './icons';
 import { useData } from '../data/DataStore';
+import { useAuth } from '../App';
+import * as AccountStore from '../auth/AccountStore';
 import { SETTINGS_SECTIONS, APP_BRAND } from '../data/uiConfig';
 import { formatSessionExpiry, formatSessionAge } from '../api/lmsAuth';
 
@@ -84,6 +87,35 @@ const Row = ({ label, sub, children }) => (
 
 function AccountSection() {
   const { user: USER, semester: SEMESTER, lmsSession, lmsBusy, loginLms, refreshLms, clearLms } = useData();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const [resetting, setResetting] = stS(false);
+
+  // 계정 초기화 — 가입정보(localStorage) + 앱 세션 + LMS 세션(백엔드 파일) 전부 삭제 후 로그아웃
+  const handleReset = async () => {
+    const ok = window.confirm(
+      '정말 계정을 초기화하시겠습니까?\n\n' +
+      '· 가입한 계정 정보 (학번/비밀번호 해시/연동 토큰)\n' +
+      '· 현재 앱 로그인 세션\n' +
+      '· LMS 세션 캐시 (Playwright 쿠키)\n\n' +
+      '모두 삭제되며 되돌릴 수 없습니다.'
+    );
+    if (!ok) return;
+    setResetting(true);
+    try {
+      // 1) 백엔드 LMS 세션 파일 삭제 (실패해도 진행)
+      try { await clearLms(); } catch { /* noop */ }
+      // 2) localStorage 의 가입 계정 + 세션 + LMS 메타 제거
+      AccountStore.resetAllAccounts();
+      localStorage.removeItem('ssu_lms_session_meta');
+      // 3) AuthContext 로그아웃 + 랜딩으로 이동
+      await logout();
+      navigate('/', { replace: true });
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
     <>
       <SectionCard title="프로필" sub="LMS 계정과 별개로 앱 안에서만 사용합니다."
@@ -131,8 +163,16 @@ function AccountSection() {
       <SectionCard title="위험 영역">
         <div className="rounded-lg border border-rose-200/60 bg-rose-50/40 p-4">
           <div className="text-[13px] font-medium text-[var(--danger)]">로그아웃 및 로컬 데이터 삭제</div>
-          <div className="text-[11.5px] text-zinc-600 mt-1">캐시된 세션·다운로드된 파일·로컬 DB가 모두 제거됩니다.</div>
-          <button className="mt-3 h-8 px-3 rounded-md bg-[var(--danger)] text-white text-[12px]">계정 초기화</button>
+          <div className="text-[11.5px] text-zinc-600 mt-1">
+            가입 정보(localStorage)·LMS 세션 캐시(.cache)·로컬 메타가 모두 제거되고 랜딩 페이지로 돌아갑니다.
+          </div>
+          <button
+            onClick={handleReset}
+            disabled={resetting}
+            className="mt-3 h-8 px-3 rounded-md bg-[var(--danger)] text-white text-[12px] hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {resetting ? '삭제 중…' : '계정 초기화'}
+          </button>
         </div>
       </SectionCard>
     </>

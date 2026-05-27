@@ -96,6 +96,14 @@ function adaptCourse(b) {
   };
 }
 
+// 백엔드가 보내는 HTML 을 짧은 평문 미리보기로 정리.
+function _htmlPreview(raw, limit = 200) {
+  if (!raw) return '';
+  // 태그 제거 후 공백 정리, limit 문자에서 자르고 …
+  const text = raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return text.length > limit ? text.slice(0, limit) + '…' : text;
+}
+
 function adaptNotice(b) {
   return {
     id:     b.id,
@@ -104,7 +112,9 @@ function adaptNotice(b) {
     date:   b.posted_at,
     author: b.author || '',
     url:    b.html_url || '',
-    snippet: b.message_snippet || '',
+    // 백엔드 모델 필드는 `message` (HTML). 짧은 미리보기 + 전체 본문 둘 다 노출.
+    snippet: _htmlPreview(b.message, 200),
+    body:    b.message || '',
     // 백엔드 is_read 반영 (pinned 는 Canvas 에 해당 개념이 없어 false)
     unread: !b.is_read,
     pinned: false,
@@ -120,7 +130,9 @@ function adaptAssignment(b) {
     weight: b.points_possible || 0,
     type:   (b.submission_types && b.submission_types[0]) || 'report',
     url:    b.html_url || '',
-    snippet: b.description_snippet || '',
+    // 백엔드 모델 필드는 `description` (HTML).
+    snippet: _htmlPreview(b.description, 200),
+    body:    b.description || '',
     // 백엔드 submitted 반영 (어댑터가 submissions API 로 채움)
     submitted: !!b.submitted,
   };

@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
-import { STUDENT_ID_REGEX } from '../auth/AccountStore';
+import { STUDENT_ID_REGEX, resetAllAccounts } from '../auth/AccountStore';
+import { clearLmsSession } from '../api/lmsAuth';
 
 export default function LoginPage() {
   const [studentId, setStudentId] = useState('');
@@ -10,6 +11,20 @@ export default function LoginPage() {
   const [loading, setLoading]     = useState(false);
   const [errors, setErrors]       = useState({});   // 필드별 inline 에러
   const [formError, setFormError] = useState('');   // 폼 상단 일반 에러
+  const [resetting, setResetting] = useState(false);
+
+  // 데모용 — 가입된 모든 계정 + 백엔드 LMS 세션 파일까지 삭제하고 새로고침.
+  const handleResetAccounts = async () => {
+    if (!confirm('가입된 모든 계정과 LMS 세션을 삭제합니다.\n진행할까요?')) return;
+    setResetting(true);
+    try {
+      resetAllAccounts();
+      await clearLmsSession();
+    } finally {
+      // 새로고침해서 AuthProvider/DataProvider 초기 상태부터 다시 시작
+      window.location.replace('/');
+    }
+  };
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -142,6 +157,16 @@ export default function LoginPage() {
               비밀번호는 SHA-256 으로 해시되지만, 실제 운영에서는 백엔드 인증으로 교체됩니다.
             </span>
           </div>
+
+          {/* 데모용 — 가입된 모든 계정 / LMS 세션 초기화 */}
+          <button
+            type="button"
+            onClick={handleResetAccounts}
+            disabled={resetting}
+            className="mt-3 w-full h-9 rounded-md border border-rose-200 bg-rose-50 text-rose-700 text-[12px] font-medium hover:bg-rose-100 disabled:opacity-60 flex items-center justify-center gap-1.5"
+          >
+            {resetting ? '초기화 중…' : '⚠ 모든 계정 / LMS 세션 초기화 (데모용)'}
+          </button>
         </div>
 
         <div className="mt-4 flex items-center justify-center gap-3">

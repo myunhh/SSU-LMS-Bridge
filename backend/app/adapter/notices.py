@@ -45,7 +45,8 @@ async def list_all_notices(client: CanvasClient, course_ids: List[int]) -> List[
             id=n["id"],
             course_id=_ctx_course_id(n.get("context_code", "")),
             title=n.get("title", ""),
-            message_snippet=(n.get("message") or "")[:300],
+            # Notice 모델 필드명은 `message` (전체 본문). 프론트가 미리보기로 잘라서 노출.
+            message=n.get("message") or "",
             posted_at=n.get("posted_at", n.get("created_at")),
             author=n.get("author", {}).get("display_name", "") if isinstance(n.get("author"), dict) else "",
             html_url=n.get("html_url", ""),
