@@ -26,11 +26,12 @@ export const WS_BASE  = env.VITE_WS_BASE_URL  || '';
 
 // ── 사이드바 네비게이션 ──────────────────────────────────────────────────────
 // id = 라우트 경로의 첫 세그먼트, iconName = pages/icons.jsx 의 키
+// badge 는 Sidebar 에서 실데이터로 동적 계산 (여기선 정의 안 함)
 export const NAV_ITEMS = [
   { id: 'dashboard',  label: '대시보드',   iconName: 'Home' },
-  { id: 'calendar',   label: '캘린더',     iconName: 'Calendar', badge: '6' },
+  { id: 'calendar',   label: '캘린더',     iconName: 'Calendar' },
   { id: 'chat',       label: '학습 비서',  iconName: 'Sparkles' },
-  { id: 'connectors', label: '커넥터',     iconName: 'Plug',     badge: '4/5' },
+  { id: 'connectors', label: '커넥터',     iconName: 'Plug' },
 ];
 
 // ── 페이지별 Topbar 타이틀 ───────────────────────────────────────────────────

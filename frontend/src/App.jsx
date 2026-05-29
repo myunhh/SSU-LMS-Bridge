@@ -175,6 +175,7 @@ function DashboardRoute() {
     <Dashboard
       openCourse={(id) => navigate(`/course/${id}`)}
       openChat={() => navigate('/chat')}
+      openCalendar={() => navigate('/calendar')}
     />
   );
 }

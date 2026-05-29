@@ -91,6 +91,27 @@ function AccountSection() {
   const navigate = useNavigate();
   const [resetting, setResetting] = stS(false);
 
+  // 프로필 편집 (표시 이름 / 학과) — localStorage 저장
+  const [profile, setProfile] = stS({ name: USER.name || '', major: USER.major || '' });
+  const [savingProfile, setSavingProfile] = stS(false);
+  const dirty = profile.name !== (USER.name || '') || profile.major !== (USER.major || '');
+
+  const handleSaveProfile = async () => {
+    if (!dirty || !profile.name.trim()) return;
+    setSavingProfile(true);
+    try {
+      const res = await AccountStore.updateProfile(profile);
+      if (res.ok) {
+        // AuthContext/DataStore 가 localStorage 를 초기값으로 읽으므로 reload 로 반영
+        window.location.reload();
+      } else {
+        window.alert(res.error || '저장에 실패했습니다.');
+      }
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   // 계정 초기화 — 가입정보(localStorage) + 앱 세션 + LMS 세션(백엔드 파일) 전부 삭제 후 로그아웃
   const handleReset = async () => {
     const ok = window.confirm(
@@ -120,21 +141,32 @@ function AccountSection() {
     <>
       <SectionCard title="프로필" sub="LMS 계정과 별개로 앱 안에서만 사용합니다."
         footer={<>
-          <button className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px]">취소</button>
-          <button className="h-8 px-3 rounded-md accent-bg text-white text-[12px]">변경 저장</button>
+          <button
+            onClick={() => setProfile({ name: USER.name || '', major: USER.major || '' })}
+            disabled={!dirty || savingProfile}
+            className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px] disabled:opacity-50 disabled:cursor-not-allowed"
+          >취소</button>
+          <button
+            onClick={handleSaveProfile}
+            disabled={!dirty || savingProfile || !profile.name.trim()}
+            className="h-8 px-3 rounded-md accent-bg text-white text-[12px] disabled:opacity-50 disabled:cursor-not-allowed"
+          >{savingProfile ? '저장 중…' : '변경 저장'}</button>
         </>}>
         <div className="flex items-center gap-4 pb-2">
-          <div className="h-16 w-16 rounded-full bg-zinc-200 flex items-center justify-center text-[18px] mono text-zinc-700">{USER.name.slice(0, 2)}</div>
+          <div className="h-16 w-16 rounded-full bg-zinc-200 flex items-center justify-center text-[18px] mono text-zinc-700">{(profile.name || USER.name).slice(0, 2)}</div>
           <div className="flex-1">
-            <div className="text-[14px] font-medium">{USER.name}</div>
+            <div className="text-[14px] font-medium">{profile.name || USER.name}</div>
             <div className="text-[11.5px] text-zinc-500 mono">{USER.email}</div>
           </div>
-          <button className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px]">사진 변경</button>
         </div>
         <div className="border-t border-[var(--line-2)] pt-4 space-y-2">
-          <Row label="표시 이름"><input defaultValue={USER.name} className="ssu-input"/></Row>
-          <Row label="학과"><input defaultValue={USER.major} className="ssu-input"/></Row>
-          <Row label="기본 학기"><select className="ssu-input"><option>{SEMESTER.label}</option><option>2025년 2학기</option></select></Row>
+          <Row label="표시 이름">
+            <input value={profile.name} onChange={e => setProfile(p => ({ ...p, name: e.target.value }))} className="ssu-input"/>
+          </Row>
+          <Row label="학과">
+            <input value={profile.major} onChange={e => setProfile(p => ({ ...p, major: e.target.value }))} className="ssu-input"/>
+          </Row>
+          <Row label="기본 학기"><input value={SEMESTER.label} className="ssu-input" readOnly/></Row>
           <Row label="언어">
             <div className="flex gap-1.5">
               <PillBtn active>한국어</PillBtn>

@@ -5,15 +5,6 @@ import { openChatStream } from '../api/chat';
 import { CHAT_MODEL_LABEL, CHAT_FOOTER_NOTE, CHAT_RAG_ENABLED } from '../data/uiConfig';
 import Ich from './icons';
 
-const dUFor = (iso, NOW) => {
-  const ms = new Date(iso) - NOW;
-  if (ms < 0) return { label: '지남', tone: 'text-zinc-400' };
-  const days = Math.floor(ms / 86400000);
-  if (days === 0) return { label: '오늘', tone: 'text-[var(--danger)]' };
-  if (days <= 3)  return { label: `D-${days}`, tone: 'text-[var(--warn)]' };
-  return { label: `D-${days}`, tone: 'text-zinc-500' };
-};
-
 /* ============== Chat ============== */
 function ChatView() {
   const {
@@ -157,73 +148,114 @@ function Bubble({ m }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-[11px] mono text-zinc-500 mb-1">학습 비서 · {m.t}</div>
-        <div className="ssu-card p-4 text-[13.5px] leading-relaxed text-zinc-800">
-          {(m.live && !m.text) ? <span className="typing">생각 중…</span> : <RichAnswer kind={m.rich} text={m.text}/>}
+        <div className={`ssu-card p-4 text-[13.5px] leading-relaxed text-zinc-800 ${m.error ? 'border-rose-200 bg-rose-50/40' : ''}`}>
+          {(m.live && !m.text) ? <span className="typing">생각 중…</span> : <Markdown text={m.text} />}
         </div>
       </div>
     </div>
   );
 }
 
-function RichAnswer({ kind, text }) {
-  // RichAnswer 는 ChatView 의 자식 컴포넌트지만 별도 함수 — useData() 를 다시 호출해 데이터를 가져온다.
-  const { courses, assignments, now } = useData();
-  const dU = (iso) => dUFor(iso, now);
+/* ============== 경량 마크다운 렌더러 ==============
+ * 외부 라이브러리 없이 LLM 답변의 흔한 마크다운만 처리:
+ * 코드블록(```), 제목(#), 리스트(-, *, 1.), 인용(>),
+ * 인라인(**굵게**, *기울임*, `코드`, [링크](url)).
+ */
+function renderInline(text) {
+  // 토큰: `code` | **bold** | *italic* | [text](url)
+  const parts = [];
+  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\([^)]+\))/g;
+  let last = 0, m, key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith('`')) {
+      parts.push(<code key={key++} className="px-1 py-0.5 rounded bg-zinc-100 text-[12px] font-mono text-zinc-800">{tok.slice(1, -1)}</code>);
+    } else if (tok.startsWith('**')) {
+      parts.push(<strong key={key++} className="font-semibold">{tok.slice(2, -2)}</strong>);
+    } else if (tok.startsWith('*')) {
+      parts.push(<em key={key++}>{tok.slice(1, -1)}</em>);
+    } else {
+      const mm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/);
+      parts.push(<a key={key++} href={mm[2]} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">{mm[1]}</a>);
+    }
+    last = m.index + tok.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
 
-  if (kind === 'deadlines') {
-    const list = assignments.filter(a=>!a.submitted).slice(0,4);
-    return (
-      <div>
-        <p>이번 주 마감 4건을 추렸어요. 비중과 권장 착수 시점을 함께 정리했습니다.</p>
-        <div className="mt-3 grid gap-2">
-          {list.map(a => {
-            const c = courses.find(x=>x.id===a.course);
-            const d = dU(a.due);
-            return (
-              <div key={a.id} className="rounded-lg border border-[var(--line)] p-3 flex items-center gap-3">
-                <span className="h-2 w-2 rounded-sm" style={{ background: c.color }}/>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate text-[13px]">{a.title}</div>
-                  <div className="text-[11px] mono text-zinc-500">{c.code} · 비중 {a.weight}% · 권장 착수 D-3</div>
-                </div>
-                <span className={`text-[11.5px] mono ${d.tone}`}>{d.label}</span>
-              </div>
-            );
-          })}
-        </div>
-        <p className="mt-3 text-[12.5px] text-zinc-600">
-          가장 비중이 높은 건 <span className="font-medium">Transformer 구현 (20%)</span> 입니다. 화/수에 모델 학습 루프부터 시작하시는 걸 권장해요.
-        </p>
-      </div>
-    );
+function Markdown({ text }) {
+  if (!text) return <span className="text-zinc-400">응답 준비 중…</span>;
+
+  const lines = text.split('\n');
+  const blocks = [];
+  let i = 0, key = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // 코드블록 ```
+    if (line.trim().startsWith('```')) {
+      const buf = [];
+      i++;
+      while (i < lines.length && !lines[i].trim().startsWith('```')) { buf.push(lines[i]); i++; }
+      i++; // 닫는 ```
+      blocks.push(
+        <pre key={key++} className="my-2 p-3 rounded-lg bg-zinc-900 text-zinc-100 text-[12px] font-mono overflow-x-auto">
+          <code>{buf.join('\n')}</code>
+        </pre>
+      );
+      continue;
+    }
+
+    // 제목 #
+    const h = line.match(/^(#{1,3})\s+(.*)$/);
+    if (h) {
+      const lvl = h[1].length;
+      const sz = lvl === 1 ? 'text-[16px]' : lvl === 2 ? 'text-[15px]' : 'text-[14px]';
+      blocks.push(<div key={key++} className={`font-semibold ${sz} mt-3 mb-1`}>{renderInline(h[2])}</div>);
+      i++;
+      continue;
+    }
+
+    // 리스트 (-, *, 1.) — 연속 묶음
+    if (/^\s*([-*]|\d+\.)\s+/.test(line)) {
+      const items = [];
+      const ordered = /^\s*\d+\.\s+/.test(line);
+      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*([-*]|\d+\.)\s+/, ''));
+        i++;
+      }
+      const ListTag = ordered ? 'ol' : 'ul';
+      blocks.push(
+        <ListTag key={key++} className={`my-1.5 pl-5 space-y-0.5 ${ordered ? 'list-decimal' : 'list-disc'}`}>
+          {items.map((it, j) => <li key={j}>{renderInline(it)}</li>)}
+        </ListTag>
+      );
+      continue;
+    }
+
+    // 인용 >
+    if (line.trim().startsWith('>')) {
+      blocks.push(
+        <blockquote key={key++} className="my-1.5 pl-3 border-l-2 border-[var(--line)] text-zinc-600">
+          {renderInline(line.replace(/^\s*>\s?/, ''))}
+        </blockquote>
+      );
+      i++;
+      continue;
+    }
+
+    // 빈 줄
+    if (line.trim() === '') { i++; continue; }
+
+    // 일반 문단
+    blocks.push(<p key={key++} className="my-1.5">{renderInline(line)}</p>);
+    i++;
   }
-  if (kind === 'ridge') {
-    return (
-      <div>
-        <p>두 정규화 모두 손실 함수에 가중치 페널티를 더해 과적합을 줄여요.</p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {[
-            { t: 'Ridge (L2)', s: '∑ wᵢ²', d: '계수를 0에 가깝게 줄임 · 모든 변수 유지', use: '다중공선성 강함' },
-            { t: 'Lasso (L1)', s: '∑ |wᵢ|', d: '일부 계수를 정확히 0 · 자동 변수 선택', use: '희소 모델 필요' },
-          ].map((x,i) => (
-            <div key={i} className="rounded-lg border border-[var(--line)] p-3">
-              <div className="text-[11px] mono text-zinc-500">{x.t}</div>
-              <div className="font-mono text-[15px] my-1">{x.s}</div>
-              <div className="text-[12px] text-zinc-700">{x.d}</div>
-              <div className="text-[11px] mono text-[var(--accent)] mt-1.5">쓸 때: {x.use}</div>
-            </div>
-          ))}
-        </div>
-        <p className="mt-3 text-[12.5px] text-zinc-600">10주차 슬라이드 18–24, 11주차 슬라이드 6–11에 식 유도가 있어요.</p>
-        <div className="flex flex-wrap gap-1.5 mt-3">
-          {['10주차 슬라이드 열기','연습 문제 만들어줘','파이썬 예제 보기'].map((s,i)=>(
-            <span key={i} className="text-[11px] px-2 py-1 rounded-md bg-[var(--accent-soft)] text-[var(--accent)]">{s}</span>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return <div>{text || '응답 준비 중…'}</div>;
+
+  return <div>{blocks}</div>;
 }
 
 export { ChatView };

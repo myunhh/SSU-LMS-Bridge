@@ -9,6 +9,7 @@ function ConnectorsView() {
   const {
     connectors: CN, toggleConnector,
     user, lmsSession, lmsBusy, loginLms, refreshLms,
+    courses,
   } = useData();
   const [selected, setSelected] = cnS('llm');
   const [lmsForm, setLmsForm] = cnS({ studentId: user?.studentId || '', password: '' });
@@ -18,6 +19,16 @@ function ConnectorsView() {
   const connectedCount = CN.filter(c =>
     c.id === 'lms' ? lmsActive : c.status === 'connected'
   ).length;
+
+  // 커넥터 meta 를 가능한 실데이터로 보정 (LMS=실제 강의 수/학번)
+  const metaFor = (c) => {
+    if (c.id === 'lms') {
+      return lmsActive
+        ? `학번 ${user?.studentId || '—'} · ${courses.length}개 강의`
+        : '연결되지 않음 — 로그인 필요';
+    }
+    return c.meta;
+  };
 
   const Logo = ({ id }) => {
     const cls = "h-9 w-9 rounded-xl flex items-center justify-center";
@@ -66,7 +77,7 @@ function ConnectorsView() {
                     <div className="text-[11.5px] text-zinc-500 mt-0.5 mono truncate">{c.kind} · {c.host}</div>
                   </div>
                   <div className="text-right hidden sm:block">
-                    <div className="text-[11.5px] text-zinc-700">{c.meta}</div>
+                    <div className="text-[11.5px] text-zinc-700">{metaFor(c)}</div>
                     <div className="text-[10.5px] mono text-zinc-400 mt-0.5">{last}</div>
                   </div>
                   <Icn.Chev size={15} className="text-zinc-400 ml-1 shrink-0"/>

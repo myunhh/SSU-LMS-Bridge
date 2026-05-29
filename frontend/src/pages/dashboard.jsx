@@ -33,7 +33,7 @@ const _relTime = (iso, now) => {
 };
 
 /* ---------- Dashboard ---------- */
-function Dashboard({ openCourse, openChat }) {
+function Dashboard({ openCourse, openChat, openCalendar }) {
   const {
     courses: COURSES, assignments: ASSIGNMENTS, notices: NOTICES, activity: ACTIVITY,
     user: USER, semester: SEMESTER, now: NOW,
@@ -114,10 +114,6 @@ function Dashboard({ openCourse, openChat }) {
               <div className="text-[14.5px] font-semibold">다가오는 마감</div>
               <div className="text-[11.5px] text-zinc-500">{totalDue}건 미제출 · 다음 7일 정렬</div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <Pill active>리스트</Pill>
-              <Pill>타임라인</Pill>
-            </div>
           </header>
           <div className="border-t border-[var(--line)]">
             {upcoming.map((a, i) => {
@@ -160,7 +156,7 @@ function Dashboard({ openCourse, openChat }) {
           </div>
           <footer className="px-5 py-2.5 text-[12px] text-zinc-500 flex items-center justify-between border-t border-[var(--line-2)]">
             <span>{submitted}/{totalAssign} 제출 완료 · 평균 제출 시점 마감 -1.4일</span>
-            <button className="text-zinc-700 hover:underline flex items-center gap-1">전체 보기 <Icon.Chev size={13}/></button>
+            <button onClick={openCalendar} className="text-zinc-700 hover:underline flex items-center gap-1">캘린더에서 보기 <Icon.Chev size={13}/></button>
           </footer>
         </section>
 
@@ -244,9 +240,6 @@ function Dashboard({ openCourse, openChat }) {
             <div className="text-[14.5px] font-semibold">강의 그리드</div>
             <div className="text-[11.5px] text-zinc-500">{COURSES.length}개 강의 · 캔버스 동기화 완료</div>
           </div>
-          <button className="text-[12px] text-zinc-500 flex items-center gap-1 hover:text-zinc-900">
-            <Icon.Filter size={13}/> 학기별
-          </button>
         </header>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {COURSES.map(c => (
@@ -290,10 +283,6 @@ const Stat = ({ label, value, hint }) => (
     <div className="text-[26px] font-semibold tracking-tight leading-none mt-2">{value}</div>
     <div className="text-[11px] text-zinc-500 mt-1.5 mono">{hint}</div>
   </div>
-);
-
-const Pill = ({ children, active }) => (
-  <button className={`h-7 px-2.5 text-[11.5px] rounded-md border ${active ? 'bg-zinc-900 text-white border-zinc-900' : 'border-[var(--line)] text-zinc-600 hover:bg-zinc-50'}`}>{children}</button>
 );
 
 export { Dashboard };

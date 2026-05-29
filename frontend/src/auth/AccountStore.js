@@ -206,6 +206,27 @@ export async function logout() {
 }
 
 /**
+ * 현재 로그인 사용자의 프로필(표시 이름·학과 등)을 갱신.
+ * @param {{name?: string, major?: string}} patch
+ * @returns {Promise<{ ok: boolean, user?, error?: string }>}
+ */
+export async function updateProfile(patch) {
+  const studentId = localStorage.getItem(K_SESSION);
+  if (!studentId) return { ok: false, error: '로그인 상태가 아닙니다.' };
+  const list = readAccounts();
+  const idx = list.findIndex(a => a.studentId === studentId);
+  if (idx < 0) return { ok: false, error: '계정을 찾을 수 없습니다.' };
+
+  const allowed = {};
+  if (typeof patch.name === 'string' && patch.name.trim()) allowed.name = patch.name.trim();
+  if (typeof patch.major === 'string') allowed.major = patch.major.trim();
+
+  list[idx] = { ...list[idx], ...allowed };
+  writeAccounts(list);
+  return { ok: true, user: stripSecrets(list[idx]) };
+}
+
+/**
  * (개발용) 가입된 모든 계정 + 세션 삭제. 데모 초기화 용도.
  */
 export function resetAllAccounts() {

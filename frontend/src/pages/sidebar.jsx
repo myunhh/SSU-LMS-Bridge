@@ -6,7 +6,46 @@ import { NAV_ITEMS, APP_BRAND } from '../data/uiConfig';
 
 /* ---------- Sidebar ---------- */
 function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) {
-  const { courses: COURSES } = useData();
+  const { courses: COURSES, assignments, connectors, lmsSession, now } = useData();
+
+  // NAV badge 동적 계산: 캘린더=이번주 마감 수, 커넥터=연결됨/전체
+  const weekMs = 7 * 86400000;
+  const dueThisWeek = assignments.filter(a => {
+    if (a.submitted || !a.due) return false;
+    const diff = new Date(a.due) - now;
+    return diff >= 0 && diff <= weekMs;
+  }).length;
+  const connTotal = connectors.length;
+  const connActive = connectors.filter(c =>
+    c.id === 'lms' ? !!lmsSession?.active : c.status === 'connected'
+  ).length;
+  const badgeFor = (id) =>
+    id === 'calendar' ? (dueThisWeek > 0 ? String(dueThisWeek) : null)
+    : id === 'connectors' ? `${connActive}/${connTotal}`
+    : null;
+
+  // ── 검색 (과목/공지/과제 클라이언트 필터) ──────────────────
+  const { notices } = useData();
+  const [q, setQ] = React.useState('');
+  const results = React.useMemo(() => {
+    const kw = q.trim().toLowerCase();
+    if (!kw) return [];
+    const out = [];
+    for (const c of COURSES) {
+      if (c.name.toLowerCase().includes(kw) || (c.code || '').toLowerCase().includes(kw))
+        out.push({ type: '과목', label: c.name, sub: c.code, onClick: () => { setCourse(c.id); setRoute('course'); } });
+    }
+    for (const a of assignments) {
+      if (a.title.toLowerCase().includes(kw))
+        out.push({ type: '과제', label: a.title, sub: COURSES.find(c => c.id === a.course)?.name || '', onClick: () => { setCourse(a.course); setRoute('course'); } });
+    }
+    for (const n of notices) {
+      if (n.title.toLowerCase().includes(kw))
+        out.push({ type: '공지', label: n.title, sub: COURSES.find(c => c.id === n.course)?.name || '', onClick: () => { setCourse(n.course); setRoute('course'); } });
+    }
+    return out.slice(0, 8);
+  }, [q, COURSES, assignments, notices, setCourse, setRoute]);
+  const pick = (r) => { r.onClick(); setQ(''); };
   const NavBtn = ({ id, label, IconCmp, badge }) => {
     const active = route === id;
     return (
@@ -40,16 +79,41 @@ function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) 
       <div className="px-3 mt-2">
         <div className="relative">
           <Icon.Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
-          <input placeholder="과목 · 자료 · 공지 검색"
-                 className="w-full h-8 pl-8 pr-2 text-[12.5px] rounded-md border border-[var(--line)] bg-white/70 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-zinc-200" />
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] mono text-zinc-400 border border-[var(--line)] rounded px-1">⌘K</span>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setQ(''); if (e.key === 'Enter' && results[0]) pick(results[0]); }}
+            placeholder="과목 · 공지 · 과제 검색"
+            className="w-full h-8 pl-8 pr-7 text-[12.5px] rounded-md border border-[var(--line)] bg-white/70 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-zinc-200"
+          />
+          {q
+            ? <button onClick={() => setQ('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700" title="지우기">✕</button>
+            : <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] mono text-zinc-400 border border-[var(--line)] rounded px-1">⌘K</span>}
+
+          {/* 결과 드롭다운 */}
+          {q.trim() && (
+            <div className="absolute left-0 right-0 top-9 z-30 bg-white rounded-lg border border-[var(--line)] shadow-[0_8px_24px_rgba(20,20,30,0.10)] max-h-[320px] overflow-y-auto">
+              {results.length === 0 ? (
+                <div className="px-3 py-3 text-[12px] text-zinc-400">검색 결과가 없습니다</div>
+              ) : results.map((r, i) => (
+                <button key={i} onClick={() => pick(r)}
+                  className="w-full text-left px-3 py-2 hover:bg-[var(--line-2)]/50 flex items-center gap-2 border-b border-[var(--line-2)] last:border-0">
+                  <span className="text-[9.5px] mono px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 shrink-0">{r.type}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[12.5px] text-zinc-800 truncate">{r.label}</span>
+                    {r.sub && <span className="block text-[10.5px] mono text-zinc-400 truncate">{r.sub}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
       <nav className="px-3 pt-4 space-y-0.5">
         {NAV_ITEMS.map(item => (
           <NavBtn key={item.id} id={item.id} label={item.label}
-                  IconCmp={Icon[item.iconName]} badge={item.badge} />
+                  IconCmp={Icon[item.iconName]} badge={badgeFor(item.id)} />
         ))}
       </nav>
 
@@ -190,11 +254,7 @@ function NotificationsPopover({ onClose }) {
 
       {/* footer */}
       <footer className="px-4 py-2.5 border-t border-[var(--line)] flex items-center gap-2 bg-[var(--line-2)]/30">
-        <button className="text-[11.5px] text-zinc-500 hover:text-zinc-800 flex items-center gap-1">
-          <Icon.Settings size={12}/> 알림 설정
-        </button>
-        <div className="flex-1"/>
-        <button className="text-[11.5px] text-[var(--accent)] font-medium hover:underline">전체 보기 →</button>
+        <span className="text-[11px] text-zinc-400">마감 임박 과제와 안 읽은 공지에서 자동 생성됩니다</span>
       </footer>
     </div>
   );

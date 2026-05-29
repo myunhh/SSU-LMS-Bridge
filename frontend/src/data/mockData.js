@@ -40,15 +40,33 @@ const USER = {
 // NOW 는 모든 D-day 계산 + 캘린더 기준 시각. 실제 현재 시각 사용.
 const NOW = new Date();
 
-const SEMESTER = {
-  year: 2026,
-  term: 1,                // 1학기
-  weekCurrent: 11,
-  weekTotal: 16,
-  label: '2026년 1학기',
-  weekLabel: '11주차',
-  todayLabel: '2026년 5월 9일 · 토요일 · 11주차',
-};
+// 한국 대학 학기 기준으로 현재 학기·주차를 NOW 로부터 계산.
+//   1학기: 3/2 시작 (3~8월),  2학기: 9/1 시작 (9~익년 2월)
+//   16주차 + 방학. 범위를 벗어나면(방학) weekCurrent 를 클램프.
+function _computeSemester(now) {
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1; // 1~12
+  let term, startYear, start;
+  if (m >= 3 && m <= 8) {
+    term = 1; startYear = y; start = new Date(y, 2, 2);          // 3/2
+  } else {
+    term = 2; startYear = m <= 2 ? y - 1 : y; start = new Date(startYear, 8, 1); // 9/1
+  }
+  const weekTotal = 16;
+  const rawWeek = Math.floor((now - start) / (7 * 86400000)) + 1;
+  const weekCurrent = Math.max(1, Math.min(weekTotal, rawWeek));
+  const wd = ['일', '월', '화', '수', '목', '금', '토'][now.getDay()];
+  return {
+    year: startYear,
+    term,
+    weekCurrent,
+    weekTotal,
+    label: `${startYear}년 ${term}학기`,
+    weekLabel: `${weekCurrent}주차`,
+    todayLabel: `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 · ${wd}요일 · ${weekCurrent}주차`,
+  };
+}
+const SEMESTER = _computeSemester(NOW);
 
 // ── 강의 ──────────────────────────────────────────────────────────────────────
 const COURSES = [
