@@ -11,11 +11,12 @@
 #    (LearningX 호출에만 Bearer xn_api_token 을 싣는다.)
 # ──────────────────────────────────────────────────────────────────────────────
 """SSU LMS / Canvas REST httpx 클라이언트"""
-import os
 import json
-import httpx
+import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
+import httpx
 
 
 class CanvasClient:
@@ -23,9 +24,9 @@ class CanvasClient:
         if session_file is None:
             session_file = os.getenv("SESSION_CACHE_PATH", ".cache/session_state.json")
         self.session_file = Path(session_file)
-        self._client: Optional[httpx.AsyncClient] = None
-        self._token: Optional[str] = None   # xn_api_token (LearningX Bearer)
-        self._csrf: Optional[str] = None    # _csrf_token (Canvas mutating 요청용)
+        self._client: httpx.AsyncClient | None = None
+        self._token: str | None = None   # xn_api_token (LearningX Bearer)
+        self._csrf: str | None = None    # _csrf_token (Canvas mutating 요청용)
 
         # LearningX 호스트(lms)와 Canvas 호스트(canvas)는 다르다.
         lms_base = os.getenv("LMS_BASE_URL", "https://lms.ssu.ac.kr").rstrip("/")
@@ -93,7 +94,8 @@ class CanvasClient:
         base = self.CANVAS_BASE if use_canvas else self.BASE
         url = f"{base}{path}" if path.startswith("/") else path
         headers = self._headers_for(use_canvas)
-        params = params or {}
+        # 호출자가 넘긴 dict 를 변형(부작용)하지 않도록 복사 후 기본값 적용
+        params = dict(params or {})
         params.setdefault("per_page", 100)
         results = []
         while url:
@@ -104,14 +106,8 @@ class CanvasClient:
             params = None
         return results
 
-    async def download_file(self, url: str) -> bytes:
-        """강의자료 등 바이너리 파일 다운로드 (vault_service 가 사용)."""
-        resp = await self._client.get(url)
-        resp.raise_for_status()
-        return resp.content
-
     @staticmethod
-    def _find_token(session_data: dict) -> Optional[str]:
+    def _find_token(session_data: dict) -> str | None:
         for origin in session_data.get("storage_state", {}).get("origins", []):
             for item in origin.get("localStorage", []):
                 if item.get("name") in ("xn_api_token", "access_token", "token"):
@@ -122,14 +118,14 @@ class CanvasClient:
         return None
 
     @staticmethod
-    def _find_cookie(session_data: dict, name: str) -> Optional[str]:
+    def _find_cookie(session_data: dict, name: str) -> str | None:
         for c in session_data.get("cookies", []):
             if c.get("name") == name:
                 return c.get("value")
         return None
 
     @staticmethod
-    def _next_link(link_header: str) -> Optional[str]:
+    def _next_link(link_header: str) -> str | None:
         for part in link_header.split(","):
             if 'rel="next"' in part:
                 return part.split("<")[1].split(">")[0]

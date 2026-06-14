@@ -81,7 +81,7 @@ export default function LandingPage() {
           {[
             { n: '7+',   label: '강의 자동 동기화' },
             { n: '4+',   label: '외부 서비스 연동' },
-            { n: 'RAG',  label: 'AI 강의자료 분석' },
+            { n: 'AI',   label: '공지·과제·마감 정리' },
           ].map((s, i) => (
             <div key={i} className="ssu-card p-6 text-center">
               <div className="text-[32px] font-semibold tracking-tight mono" style={{ color: 'var(--accent)' }}>{s.n}</div>

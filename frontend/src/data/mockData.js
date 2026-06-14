@@ -1,9 +1,16 @@
 // src/data/mockData.js
 // ──────────────────────────────────────────────────────────────────────────────
-// 백엔드 API 응답을 흉내내는 mock 데이터. → 백엔드 연결 시 실제 fetch 호출로 교체
-// 모든 페이지(dashboard, course-detail, chat, calendar, sidebar 등)는
-// 이 파일의 데이터만 참조한다.
-// ! 페이지 안에서 따로 mock 데이터를 만들지 말 것.
+// 백엔드 API 응답을 흉내내는 mock 데이터.
+//
+// ⚠️ 더 이상 기본 초기값이 아니다(#4). DataStore 는 USE_MOCK 일 때만 아래 seed
+//    (COURSES/ASSIGNMENTS/NOTICES)를 주입한다. 실연결(USE_MOCK=false)에서는
+//    courses/assignments/notices 의 초기값이 빈 배열이라, 로그인은 됐지만 LMS
+//    미연결(세션 없음/만료)인 상태에서 가짜 강의·교수·공지가 실데이터처럼 노출되지
+//    않는다. 페이지는 lmsConnected/firstFetchDone 으로 빈 상태·스켈레톤을 가른다.
+//    이 seed 는 UI 개발용(USE_MOCK=true)으로만 남겨 둔다.
+//
+// 모든 페이지(dashboard, course-detail, chat, calendar, sidebar 등)가 mock 모드에서
+// 참조하는 데이터다. ! 페이지 안에서 따로 mock 데이터를 만들지 말 것.
 //
 // ! UI 메뉴/문구/페이지 타이틀 같은 정적 콘텐츠는 ./uiConfig.js
 //
@@ -37,7 +44,9 @@ const USER = {
 };
 
 // ── 현재 학기 / 시점 ───────────────────────────────────────────────────────────
-// NOW 는 모든 D-day 계산 + 캘린더 기준 시각. 실제 현재 시각 사용.
+// NOW 는 SEMESTER 계산과 seed 데이터의 날짜 생성 기준 (모듈 로드 시 1회 고정).
+// 실시간 D-day·상대시각 기준 시각은 DataStore.jsx 의 `now` 상태(분 단위 갱신)다 —
+// 여기 NOW 를 그 용도로 다시 쓰지 말 것.
 const NOW = new Date();
 
 // 한국 대학 학기 기준으로 현재 학기·주차를 NOW 로부터 계산.
@@ -127,13 +136,12 @@ const MODULES = {
 };
 
 // ── 동기화 활동 로그 ───────────────────────────────────────────────────────────
-const ACTIVITY = [
-  { t: '방금 전', text: 'Vault에 강의자료 4개 다운로드',     kind: 'sync', meta: '딥러닝과응용 · Week 11' },
-  { t: '7분 전',  text: 'Notion DB 동기화 완료',             kind: 'sync', meta: '공지 3건 · 과제 1건 새로 추가' },
-  { t: '1시간 전', text: '세션 갱신 — Playwright 쿠키 연장',  kind: 'auth', meta: 'ssu_lms_session.json · 0.5s' },
-  { t: '오늘 04:00', text: '예약 동기화 실행',                kind: 'cron', meta: 'APScheduler · 23/23 성공' },
-  { t: '어제',    text: 'AVL Tree 구현 제출 완료',           kind: 'submit', meta: '자료구조 · 만점' },
-];
+// ⚠️ 더 이상 seed 가 아니다. 실제 활동 타임라인은 DataStore 가 사용자 동작(동기화/
+//    로그인/세션갱신)으로 채워 학번 스코프 localStorage(ssu_activity:{studentId})에
+//    영속화한다(#7). 아래는 이벤트 형태만 문서화한 빈 배열 — 가짜 수치(제출 만점 등)를
+//    초기 화면에 보이지 않게 비워 둔다.
+//    형태: { at: ISO타임스탬프, text, kind: 'sync'|'auth'|'submit'|'cron', meta }
+const ACTIVITY = [];
 
 // ── 채팅 ─────────────────────────────────────────────────────────────────────
 const CHAT_SEED = [
@@ -160,17 +168,20 @@ const CONVERSATIONS = [
 ];
 
 // ── 커넥터 ────────────────────────────────────────────────────────────────────
+// 기본은 미연결 — 백엔드 /api/connectors/status 가 살아 있으면 DataStore 가
+// id 병합으로 실상태(status/meta/last)를 덮어쓴다 (컨트랙트 B). 백엔드가 꺼져
+// 있으면 이 중립 seed 가 유지돼 '가짜 연결됨' 대신 '미연결'을 보인다.
 const CONNECTORS = [
   { id: 'lms',     name: '숭실대 스마트캠퍼스 LMS', kind: 'OAuth · Playwright SSO', host: 'canvas.ssu.ac.kr',
-    status: 'connected', meta: '학번 20231234 · 7개 강의 동기화', last: '오늘 04:00', icon: 'book' },
+    status: 'disconnected', meta: '상태 미확인', last: '—', icon: 'book' },
   { id: 'notion',  name: 'Notion',                 kind: 'API v1 — Internal Integration', host: 'api.notion.com',
-    status: 'connected', meta: '루트 페이지 · 1학기 / 2026', last: '7분 전', icon: 'notion' },
+    status: 'disconnected', meta: '상태 미확인', last: '—', icon: 'notion' },
   { id: 'obsidian',name: 'Obsidian (MCP)',         kind: 'MCP · Auth Code', host: 'localhost:27124',
-    status: 'connected', meta: 'Vault: LMS_Bridge_Vault · 153 files', last: '방금 전', icon: 'obsidian' },
-  { id: 'llm',     name: 'LLM Provider',           kind: 'litellm · multi-provider', host: 'api.anthropic.com',
-    status: 'connected', meta: 'claude-haiku-4-5 · 14.2K tok / 24h', last: '실시간', icon: 'spark' },
-  { id: 'gmail',   name: 'Gmail (선택)',           kind: 'OAuth · 알림 발송용', host: 'gmail.googleapis.com',
-    status: 'disconnected', meta: '연동 시 마감 24h 전 메일 알림', last: '—', icon: 'mail' },
+    status: 'disconnected', meta: '상태 미확인', last: '—', icon: 'obsidian' },
+  { id: 'llm',     name: 'LLM Provider',           kind: 'litellm · multi-provider', host: 'generativelanguage.googleapis.com',
+    status: 'disconnected', meta: '상태 미확인', last: '—', icon: 'spark' },
+  { id: 'gmail',   name: 'Gmail (로드맵)',          kind: 'OAuth · 알림 발송용 (예정)', host: 'gmail.googleapis.com',
+    status: 'disconnected', meta: '마감 알림 메일 — 로드맵 단계 (미지원)', last: '—', icon: 'mail' },
 ];
 
 // ── 알림 (사이드바 종 아이콘 팝오버) ────────────────────────────────────────────
@@ -206,8 +217,9 @@ const CALENDAR_MONTH = {
   label: '2026년 5월',
 };
 
-// 캘린더 이벤트 — ASSIGNMENTS / NOTICES 에서 자동 생성 + 수동 이벤트 일부 추가
-// 형태: { [day]: [{ c: courseId, t: 제목, kind: 'due'|'submit'|'notice'|'event' }, ...] }
+// 캘린더 이벤트 — ASSIGNMENTS / NOTICES 에서 자동 생성.
+// 실제 범위는 과제 마감·공지뿐이다 (학사/시험 'event' 데이터 소스 없음).
+// 형태: { [day]: [{ c: courseId, t: 제목, kind: 'due'|'submit'|'notice' }, ...] }
 function buildCalendarEvents() {
   const ev = {};
   const push = (day, item) => { (ev[day] ||= []).push(item); };
@@ -238,9 +250,8 @@ function buildCalendarEvents() {
     }
   }
 
-  // 추가로 LMS 외부 일정 (학사 이벤트 등)
+  // 자료실/공지 성격의 보조 항목 (notice 로 표기 — 'event' 종류는 라이브에 데이터 소스가 없어 쓰지 않는다)
   push(21, { c: 6, t: 'GPU 서버 점검', kind: 'notice' });
-  push(27, { c: 1, t: '중간 발표', kind: 'event' });
 
   return ev;
 }

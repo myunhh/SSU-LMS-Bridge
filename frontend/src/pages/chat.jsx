@@ -2,24 +2,71 @@
 import { useState as chS, useEffect as chE, useRef as chR } from 'react';
 import { useData } from '../data/DataStore';
 import { openChatStream } from '../api/chat';
-import { CHAT_MODEL_LABEL, CHAT_FOOTER_NOTE, CHAT_RAG_ENABLED } from '../data/uiConfig';
+import { CHAT_MODEL_LABEL, CHAT_FOOTER_NOTE, CHAT_TOOLS_LABEL } from '../data/uiConfig';
 import Ich from './icons';
 
 /* ============== Chat ============== */
 function ChatView() {
   const {
-    chatSeed, suggestions: SUGGESTIONS,
+    suggestions: SUGGESTIONS,
     conversations: CONVERSATIONS,
-    appendChatMessage, startNewConversation, selectConversation,
+    activeConversationId, activeMessages,
+    startNewConversation, selectConversation, saveActiveMessages, deleteConversation,
+    connectors,
   } = useData();
 
-  // 실제 LLM 채팅은 빈 대화로 시작 (mock seed 카드는 사용하지 않음)
-  const [msgs, setMsgs] = chS([]);
+  // 푸터 모델 라벨 — connectors 의 llm 항목 meta('provider · model')에서 모델명만 표시.
+  // 미연결/미로딩이면 CHAT_MODEL_LABEL(uiConfig) 폴백. meta 가 'provider · model' 형식일
+  // 때만 ' · ' 뒤 모델명을 쓰고, '상태 미확인'·'LLM_API_KEY 미설정' 같은 안내 문구는 폴백.
+  const llm = connectors?.find(c => c.id === 'llm');
+  const modelLabel = (() => {
+    if (llm?.status === 'connected' && typeof llm.meta === 'string' && llm.meta.includes(' · ')) {
+      const model = llm.meta.split(' · ').pop().trim();
+      if (model) return model;
+    }
+    return CHAT_MODEL_LABEL;
+  })();
+
+  // 화면에 그릴 메시지 버퍼. 진리값은 DataStore(activeMessages) — 전환/새로고침 시
+  // 아래 effect 가 다시 로드한다. 스트리밍은 이 버퍼에서 매끄럽게 누적하고,
+  // 매 갱신마다 saveActiveMessages 로 영속 스토어에 반영한다.
+  const [msgs, setMsgs] = chS(activeMessages);
   const [input, setInput] = chS('');
   const [streaming, setStreaming] = chS(false);
   const scrollRef = chR(null);
+  const closeRef = chR(null); // 진행 중인 채팅 스트림의 close 함수 — 언마운트/새 대화 시 닫기 위해 보관
+  // 직전에 본 활성 대화 id. 복원 effect 가 '진짜 대화 전환'과
+  // 'send 가 첫 전송 시 새 대화를 만들어 null→c<ts> 로 바뀐 것'을 구분하는 기준.
+  const prevConvIdRef = chR(activeConversationId);
+  // send 가 활성 대화 없이(첫 전송) 스트림을 열면 true. 이때 saveActiveMessages 가
+  // null→새 대화 를 만들어 activeConversationId 가 바뀌어도 복원 effect 는 한 번 건너뛴다.
+  const sendCreatedConvRef = chR(false);
+
+  // 활성 대화가 바뀌면(사이드바 전환·새 대화·삭제) 그 대화의 메시지를 버퍼로 복원.
+  // 스트리밍 중이면 진행 중 스트림을 닫고 새 대화로 전환한다.
+  chE(() => {
+    const prev = prevConvIdRef.current;
+    prevConvIdRef.current = activeConversationId;
+    // send 가 첫 전송에서 null→새 대화 로 만든 전환이면(스트림은 이미 열려 있음)
+    // 복원하지 않는다 — 안 그러면 방금 연 WS 를 닫고 placeholder 까지 날려 무음 실패가 된다.
+    if (sendCreatedConvRef.current && !prev && activeConversationId) {
+      sendCreatedConvRef.current = false;
+      return;
+    }
+    sendCreatedConvRef.current = false;
+    closeRef.current?.();
+    closeRef.current = null;
+    setStreaming(false);
+    setMsgs(activeMessages);
+    // activeMessages 는 매 렌더 새 참조라 deps 에 넣으면 매번 덮어써 스트리밍이 끊긴다.
+    // 전환 신호는 activeConversationId 하나로 충분.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId]);
 
   chE(() => { scrollRef.current?.scrollTo({ top: 99999, behavior: 'smooth' }); }, [msgs, streaming]);
+
+  // 언마운트 시 열려 있는 스트림 정리 — 언마운트된 컴포넌트에 setMsgs 가 호출되는 누수 방지
+  chE(() => () => { closeRef.current?.(); }, []);
 
   // 백엔드 WS /api/chat 로 스트리밍 — ChatService(litellm + MCP tool-use)
   const send = (text) => {
@@ -34,23 +81,45 @@ function ChatView() {
       .filter(m => m.text && !m.error)
       .map(m => ({ role: m.role, content: m.text }));
 
-    // user 메시지 + 스트리밍될 assistant placeholder 추가
-    setMsgs(m => [...m, userMsg, { role: 'assistant', t, text: '', live: true }]);
+    // user 메시지 + 스트리밍될 assistant placeholder 추가.
+    // user 메시지가 들어오는 순간 영속화 → 제목이 즉시 사이드바에 반영되고
+    // 응답 도중 새로고침해도 질문은 보존된다 (placeholder 는 저장에서 제외).
+    // 마지막 user 발화 직전 버퍼를 보관해 두면 스트림 종료 시 최종본을 만들 수 있다.
+    const baseMsgs = [...msgs, userMsg];
+    setMsgs([...baseMsgs, { role: 'assistant', t, text: '', live: true }]);
+    // 활성 대화가 없으면(첫 전송·마지막 대화 삭제 직후) saveActiveMessages 가 새 대화를
+    // 만들며 activeConversationId 를 null→c<ts> 로 바꾼다. 그 전환을 복원 effect 가
+    // '대화 전환'으로 오인해 방금 연 스트림을 닫지 않도록 플래그를 세워 둔다.
+    if (!activeConversationId) sendCreatedConvRef.current = true;
+    saveActiveMessages(baseMsgs);   // 질문 즉시 영속화 (side-effect 는 updater 밖에서)
     setInput('');
     setStreaming(true);
 
     let acc = '';
+    // 진행 중인 MCP 도구명 — replaceLast 가 메시지를 통째로 재구성하므로 onText 에서도 함께 실어야 유지됨
+    let liveTool = null;
     const replaceLast = (patch) => setMsgs(m => {
       const copy = [...m];
       copy[copy.length - 1] = { role: 'assistant', t, ...patch };
       return copy;
     });
 
-    openChatStream({
+    // 스트림 종료 시 최종 메시지를 영속 스토어에 반영.
+    // live 플래그를 떼고(저장은 정적 스냅샷) 저장한다. side-effect 는 updater 밖에서.
+    const persist = (finalText, extra = {}) => {
+      const finalMsgs = [...baseMsgs, { role: 'assistant', t, text: finalText, ...extra }];
+      setMsgs(finalMsgs);
+      saveActiveMessages(finalMsgs);
+    };
+
+    closeRef.current = openChatStream({
       messages: history,
-      onText: (delta) => { acc += delta; replaceLast({ text: acc, live: true }); },
-      onError: (msg) => { replaceLast({ text: acc || `⚠️ ${msg}`, error: true }); setStreaming(false); },
-      onDone: () => { replaceLast({ text: acc || '(응답이 비어 있습니다)' }); setStreaming(false); },
+      onText: (delta) => { acc += delta; replaceLast({ text: acc, live: true, tool: liveTool }); },
+      // MCP 도구 실행 구간 표시 — tool_call 에서 도구명 노출, tool_result 에서 제거
+      onToolCall: (name) => { liveTool = name; replaceLast({ text: acc, live: true, tool: name }); },
+      onToolResult: () => { liveTool = null; replaceLast({ text: acc, live: true }); },
+      onError: (msg) => { persist(acc || `⚠️ ${msg}`, { error: true }); setStreaming(false); closeRef.current = null; },
+      onDone: () => { persist(acc || '(응답이 비어 있습니다)'); setStreaming(false); closeRef.current = null; },
     });
   };
 
@@ -60,26 +129,53 @@ function ChatView() {
       <aside className="w-[260px] shrink-0 border-r border-[var(--line)] bg-[#faf9f6] flex flex-col">
         <div className="p-3 border-b border-[var(--line)]">
           <button
-            onClick={() => { startNewConversation(); setMsgs([]); }}
+            onClick={() => {
+              // 스트리밍 중이던 스트림을 먼저 닫아야 빈 msgs 배열에 좀비 쓰기가 발생하지 않음.
+              // 전환 effect(activeConversationId)가 새 빈 대화의 메시지로 버퍼를 비운다.
+              closeRef.current?.();
+              closeRef.current = null;
+              setStreaming(false);
+              startNewConversation();
+            }}
             className="w-full h-9 rounded-lg accent-bg text-white text-[12.5px] font-medium flex items-center justify-center gap-2 hover:opacity-90"
           >
             <Ich.Plus size={14}/> 새 대화
           </button>
         </div>
         <div className="flex-1 overflow-y-auto scroll-hide p-2 space-y-1">
+          {CONVERSATIONS.length === 0 && (
+            <div className="px-3 py-6 text-center text-[11.5px] text-zinc-400">
+              아직 대화가 없습니다.
+            </div>
+          )}
           {CONVERSATIONS.map((c) => (
-            <button
+            <div
               key={c.id}
-              onClick={() => selectConversation(c.id)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] ${c.active ? 'bg-white border border-[var(--line)]' : 'hover:bg-white/60'}`}
+              className={`group relative w-full rounded-lg ${c.active ? 'bg-white border border-[var(--line)]' : 'hover:bg-white/60'}`}
             >
-              <div className="font-medium truncate">{c.title}</div>
-              <div className="text-[10.5px] mono text-zinc-500 truncate">{c.sub}</div>
-            </button>
+              <button
+                onClick={() => selectConversation(c.id)}
+                className="w-full text-left px-3 py-2 text-[12.5px]"
+              >
+                <div className="font-medium truncate pr-5">{c.title}</div>
+                <div className="text-[10.5px] mono text-zinc-500 truncate">{c.sub}</div>
+              </button>
+              {/* 대화 삭제 — hover 시 노출 (icons.jsx 는 읽기전용이라 인라인 SVG) */}
+              <button
+                onClick={(e) => { e.stopPropagation(); deleteConversation(c.id); }}
+                title="대화 삭제"
+                className="absolute top-1.5 right-1.5 h-6 w-6 rounded-md hidden group-hover:flex items-center justify-center text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
         <div className="p-3 border-t border-[var(--line)] text-[10.5px] mono text-zinc-500">
-          모델 <span className="text-zinc-800">{CHAT_MODEL_LABEL}</span>{CHAT_RAG_ENABLED ? ' · RAG 켜짐' : ''}
+          모델 <span className="text-zinc-800">{modelLabel}</span>{CHAT_TOOLS_LABEL ? ` · ${CHAT_TOOLS_LABEL}` : ''}
         </div>
       </aside>
 
@@ -107,12 +203,11 @@ function ChatView() {
               ))}
             </div>
             <div className="ssu-card flex items-end gap-2 p-2.5">
-              <button className="h-8 w-8 rounded-md hover:bg-zinc-100 flex items-center justify-center text-zinc-500"><Ich.Plus size={16}/></button>
               <textarea
                 rows={1} value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                placeholder="강의자료에 대해 무엇이든 물어보세요…"
+                placeholder="강의·과제·공지에 대해 무엇이든 물어보세요…"
                 className="flex-1 resize-none bg-transparent outline-none text-[13.5px] leading-relaxed px-1 py-1 placeholder:text-zinc-400 max-h-[120px]"/>
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-[10.5px] mono text-zinc-400">⌘ ↵ 전송</span>
@@ -135,7 +230,8 @@ function ChatView() {
 function Bubble({ m }) {
   if (m.role === 'user') return (
     <div className="flex justify-end fade-in">
-      <div className="max-w-[78%] rounded-2xl rounded-tr-sm px-4 py-2.5 bg-zinc-900 text-white text-[13.5px] leading-relaxed">
+      {/* Shift+Enter 멀티라인 줄바꿈 보존 — whitespace-pre-wrap(+긴 단어 줄바꿈) */}
+      <div className="max-w-[78%] rounded-2xl rounded-tr-sm px-4 py-2.5 bg-zinc-900 text-white text-[13.5px] leading-relaxed whitespace-pre-wrap break-words">
         {m.text}
         <div className="text-[10px] mono text-zinc-400 mt-1 text-right">{m.t}</div>
       </div>
@@ -148,8 +244,19 @@ function Bubble({ m }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-[11px] mono text-zinc-500 mb-1">학습 비서 · {m.t}</div>
-        <div className={`ssu-card p-4 text-[13.5px] leading-relaxed text-zinc-800 ${m.error ? 'border-rose-200 bg-rose-50/40' : ''}`}>
+        {/* 스크린리더 — 스트리밍 응답을 polite 로 읽어주고, 진행 중이면 aria-busy 로 알림 */}
+        <div
+          aria-live="polite"
+          aria-busy={!!m.live}
+          className={`ssu-card p-4 text-[13.5px] leading-relaxed text-zinc-800 ${m.error ? 'border-rose-200 bg-rose-50/40' : ''}`}
+        >
           {(m.live && !m.text) ? <span className="typing">생각 중…</span> : <Markdown text={m.text} />}
+          {/* MCP 도구 실행 중 표시 — prefix__name 원문 그대로 (예: notion__query_assignments) */}
+          {m.live && m.tool && (
+            <div className="mt-2 text-[11px] mono text-zinc-500">
+              <span className="typing">도구 실행 중</span> · {m.tool}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -177,7 +284,14 @@ function renderInline(text) {
       parts.push(<em key={key++}>{tok.slice(1, -1)}</em>);
     } else {
       const mm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/);
-      parts.push(<a key={key++} href={mm[2]} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">{mm[1]}</a>);
+      // javascript: 등 위험 스킴 차단 — http/https/mailto만 링크로 렌더 (그 외는 텍스트로)
+      const url = mm[2].trim();
+      const isSafe = /^(https?:|mailto:)/i.test(url);
+      if (isSafe) {
+        parts.push(<a key={key++} href={url} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">{mm[1]}</a>);
+      } else {
+        parts.push(mm[1]);
+      }
     }
     last = m.index + tok.length;
   }

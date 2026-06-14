@@ -6,7 +6,7 @@ import { NAV_ITEMS, APP_BRAND } from '../data/uiConfig';
 
 /* ---------- Sidebar ---------- */
 function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) {
-  const { courses: COURSES, assignments, connectors, lmsSession, now } = useData();
+  const { courses: COURSES, assignments, connectors, connectorsLoaded, lmsSession, now } = useData();
 
   // NAV badge 동적 계산: 캘린더=이번주 마감 수, 커넥터=연결됨/전체
   const weekMs = 7 * 86400000;
@@ -21,7 +21,8 @@ function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) 
   ).length;
   const badgeFor = (id) =>
     id === 'calendar' ? (dueThisWeek > 0 ? String(dueThisWeek) : null)
-    : id === 'connectors' ? `${connActive}/${connTotal}`
+    // 커넥터 상태 응답 도착 전에는 확정 카운트 대신 '…' (lms 는 lmsSession 으로 보정됨)
+    : id === 'connectors' ? (connectorsLoaded ? `${connActive}/${connTotal}` : '…')
     : null;
 
   // ── 검색 (과목/공지/과제 클라이언트 필터) ──────────────────
@@ -80,6 +81,7 @@ function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) 
         <div className="relative">
           <Icon.Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
           <input
+            id="ssu-global-search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Escape') setQ(''); if (e.key === 'Enter' && results[0]) pick(results[0]); }}
@@ -212,7 +214,8 @@ function NotificationsPopover({ onClose }) {
           </span>
           <div className="flex-1"/>
           <button onClick={() => { markAll(); onClose(); }}
-            className="text-[11.5px] text-zinc-500 hover:text-zinc-800">모두 읽음</button>
+            disabled={unreadCount === 0}
+            className="text-[11.5px] text-zinc-500 hover:text-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-500">모두 읽음</button>
         </div>
         <div className="mt-2.5 flex gap-1">
           {[['all','전체'],['unread','안읽음'],['deadline','마감']].map(([k,l]) => (

@@ -1,9 +1,17 @@
 # backend/app/adapter/courses.py
 # 수강 강의 목록 조회
 """수강 과목 목록 조회"""
-from typing import List, Optional
-from .canvas_client import CanvasClient
+import asyncio
+
+from app.logger import logger
+
 from ..models import Course
+from .canvas_client import CanvasClient
+from .notices import is_session_unauthorized
+
+# 과목 동시 조회 상한 — 한 학기 과목 수는 작지만 폭주 방지용 세마포어.
+# httpx.AsyncClient 는 동시 요청에 안전하므로 과목 루프를 병렬화한다 (#2).
+_COURSE_CONCURRENCY = 5
 
 
 async def _get_professor(client: CanvasClient, course_id: int) -> str:
@@ -18,14 +26,24 @@ async def _get_professor(client: CanvasClient, course_id: int) -> str:
             teachers = teachers.get("data", [])
         names = [t.get("name", "") for t in teachers if t.get("name")]
         return ", ".join(names)
-    except Exception:
+    except Exception as e:
+        if is_session_unauthorized(e):
+            raise  # 세션 만료는 전역 핸들러(→ 401 '재로그인 필요')로 전파
+        logger.debug(f"과목 {course_id} 교수명 조회 실패: {e!r}")
         return ""
 
 
-async def _get_progress(client: CanvasClient, course_id: int) -> Optional[float]:
-    """강의 진도율 반환 (0.0 ~ 100.0)"""
+async def _get_progress_and_materials(
+    client: CanvasClient, course_id: int
+) -> tuple[float | None, int]:
+    """모듈 1회 호출로 (진도율 0.0~100.0, 모듈 아이템 총 개수) 동시 계산.
+
+    진도율과 자료 수가 같은 modules?include[]=items 응답에서 나오므로
+    호출을 합쳐 N+1 을 늘리지 않는다 (#39).
+    """
     try:
-        prog = await client.get(
+        # Link 헤더 페이지네이션 추적 — 모듈 100건 초과 시 진도율/자료 수 왜곡 방지
+        prog = await client.get_all_pages(
             f"/courses/{course_id}/modules",
             params={"per_page": 100, "include[]": "items"},
             use_canvas=True,
@@ -40,13 +58,16 @@ async def _get_progress(client: CanvasClient, course_id: int) -> Optional[float]
             if item.get("completion_requirement", {}).get("completed")
         )
         if total == 0:
-            return None
-        return round(completed / total * 100, 1)
-    except Exception:
-        return None
+            return None, 0
+        return round(completed / total * 100, 1), total
+    except Exception as e:
+        if is_session_unauthorized(e):
+            raise
+        logger.debug(f"과목 {course_id} 모듈(진도/자료 수) 조회 실패: {e!r}")
+        return None, 0
 
 
-async def list_course_ids(client: CanvasClient) -> List[int]:
+async def list_course_ids(client: CanvasClient) -> list[int]:
     """강의 ID 목록만 가볍게 조회 (교수/진도 N+1 호출 없이 1~2콜).
 
     todos·통합공지처럼 ID 만 필요한 곳에서 list_courses 대신 사용.
@@ -54,13 +75,15 @@ async def list_course_ids(client: CanvasClient) -> List[int]:
     params = {"enrollment_state": "active", "per_page": 50}
     try:
         raw = await client.get("/courses", params=params)
-    except Exception:
+    except Exception as e:
+        # LearningX(Bearer)와 Canvas(쿠키)는 인증이 독립적이므로 401 이어도 폴백 시도.
+        logger.debug(f"LearningX 강의 ID 목록 실패 → Canvas 폴백: {e!r}")
         raw = await client.get("/courses", params=params, use_canvas=True)
     items = raw if isinstance(raw, list) else raw.get("courses", raw.get("data", []))
     return [it["id"] for it in items if it.get("id")]
 
 
-async def list_courses(client: CanvasClient) -> List[Course]:
+async def list_courses(client: CanvasClient) -> list[Course]:
     params = {
         "enrollment_state": "active",
         "per_page": 50,
@@ -69,34 +92,45 @@ async def list_courses(client: CanvasClient) -> List[Course]:
 
     try:
         raw = await client.get("/courses", params=params)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"LearningX 강의 목록 실패 → Canvas 폴백: {e!r}")
         raw = await client.get("/courses", params=params, use_canvas=True)
 
     items = raw if isinstance(raw, list) else raw.get("courses", raw.get("data", []))
 
-    courses = []
-    for item in items:
+    sem = asyncio.Semaphore(_COURSE_CONCURRENCY)
+
+    async def _build_course(item: dict) -> Course:
         course_id = item.get("id")
+        async with sem:
+            # 과목당 추가 호출 2개(교수명 + 모듈)를 한 gather 로 병렬 실행.
+            # _get_professor/_get_progress_and_materials 내부에서 세션 만료(401)는
+            # 이미 re-raise 하므로, return_exceptions 없이 gather 가 401 을 그대로
+            # 전파한다 (재로그인 유도 정책 유지). 콜 수는 여전히 과목당 정확히 2.
+            professor, (module_progress, materials) = await asyncio.gather(
+                _get_professor(client, course_id),
+                _get_progress_and_materials(client, course_id),
+            )
 
-        # 교수명
-        professor = await _get_professor(client, course_id)
-
-        # 진도율 (course_progress가 있으면 사용, 없으면 modules API 호출)
+        # 진도율은 course_progress 가 있으면 우선 사용, 없으면 modules 기반 값
         cp = item.get("course_progress", {})
         if cp and cp.get("requirement_count"):
             completed = cp.get("requirement_completed_count", 0)
             total = cp.get("requirement_count", 1)
             progress = round(completed / total * 100, 1)
         else:
-            progress = await _get_progress(client, course_id)
+            progress = module_progress
 
-        courses.append(Course(
+        return Course(
             id=course_id,
             name=item.get("name", item.get("course_name", "")),
             course_code=item.get("course_code", ""),
             term=item.get("term", {}).get("name", "") if isinstance(item.get("term"), dict) else "",
-            professor=professor,           # ✅ 추가
-            credits=item.get("credits"),   # ✅ 추가
-            progress=progress,             # ✅ 추가
-        ))
-    return courses
+            professor=professor,
+            credits=item.get("credits"),
+            progress=progress,
+            materials=materials,           # ✅ 강의 모듈 아이템 총 개수 (#39)
+        )
+
+    # 과목 루프 병렬화 — 첫 401 이 gather 밖으로 전파되어 전역 핸들러에 도달한다.
+    return list(await asyncio.gather(*(_build_course(item) for item in items)))

@@ -1,13 +1,56 @@
 /* Calendar view */
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../data/DataStore';
 import I3c from './icons';
 
 const W = ['일','월','화','수','목','금','토'];
 
+/* LMS 미연결(세션 없음/만료) 시 가짜 seed 대신 안내 빈 상태(#4).
+ * 세션 확인·첫 fetch 중이면 스켈레톤. mock 모드면 lmsConnected 가 항상 true. */
+function CalendarEmptyState() {
+  const navigate = useNavigate();
+  return (
+    <div className="px-7 py-6 max-w-[1280px]">
+      <div className="ssu-card p-10 flex flex-col items-center text-center gap-4">
+        <span className="h-12 w-12 rounded-xl flex items-center justify-center bg-[var(--accent-soft)] text-[var(--accent)]">
+          <I3c.Book size={22} />
+        </span>
+        <div>
+          <div className="text-[16px] font-semibold tracking-tight">아직 LMS에 연결되지 않았어요</div>
+          <p className="text-[13px] text-zinc-500 mt-1.5 leading-relaxed">
+            과제 마감·공지를 캘린더에 표시하려면 먼저 Connectors에서 숭실대 스마트캠퍼스 LMS에 로그인하세요.
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/connectors')}
+          className="h-9 px-4 rounded-lg accent-bg text-white text-[13px] font-medium flex items-center gap-2 hover:opacity-90"
+        >
+          <I3c.Book size={15} /> Connectors에서 로그인
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CalendarSkeleton() {
+  return (
+    <div className="px-7 py-6 max-w-[1280px]" aria-busy="true" aria-label="불러오는 중">
+      <div className="ssu-card overflow-hidden">
+        <div className="px-5 py-3 border-b border-[var(--line)] h-[52px] animate-pulse bg-zinc-100/60" />
+        <div className="grid grid-cols-7" style={{ gridAutoRows: 'minmax(108px, 1fr)' }}>
+          {Array.from({ length: 35 }).map((_, i) => (
+            <div key={i} className="border-r border-b border-[var(--line-2)] p-2 animate-pulse bg-zinc-100/40" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ============== Calendar ============== */
 function CalendarView() {
-  const { courses: C3, assignments, notices, now } = useData();
+  const { courses: C3, assignments, notices, now, lmsConnected, lmsSession, firstFetchDone, loading } = useData();
 
   // 현재 보고 있는 월 (year, month는 1~12). 초기값은 NOW 의 월.
   const [view, setView] = useState({
@@ -74,6 +117,14 @@ function CalendarView() {
   });
   const goToday = () => setView({ year: now.getFullYear(), month: now.getMonth() + 1 });
 
+  // 게이트는 모든 훅(useState/useMemo) 호출 뒤에 둔다 — Rules of Hooks(#4).
+  //   ① 세션 상태 아직 모름(lmsSession === null) → 스켈레톤(빈 상태 깜빡임 방지)
+  //   ② LMS 미연결 확정 → 안내 빈 상태
+  //   ③ 연결됐지만 첫 fetch 전/로딩 중 → 스켈레톤
+  if (!lmsConnected && lmsSession == null) return <CalendarSkeleton />;
+  if (!lmsConnected) return <CalendarEmptyState />;
+  if (!firstFetchDone || loading) return <CalendarSkeleton />;
+
   return (
     <div className="px-7 py-6 max-w-[1280px]">
       <div className="ssu-card overflow-hidden">
@@ -107,7 +158,8 @@ function CalendarView() {
           <div className="flex items-center gap-3 text-[11px] mono text-zinc-500">
             <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{background:'var(--accent)'}}/>마감</span>
             <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-[var(--ok)]"/>제출</span>
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-[var(--warn)]"/>공지/이벤트</span>
+            {/* 공지(휴강 등)는 셀에서 --accent-soft 배경으로 칠해지므로 범례 스와치도 동일하게 맞춘다 */}
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{background:'var(--accent-soft)'}}/>공지</span>
           </div>
         </header>
         <div className="grid grid-cols-7 border-b border-[var(--line)] bg-[var(--line-2)]/40">
@@ -128,9 +180,10 @@ function CalendarView() {
                 <div className="space-y-1">
                   {evs.slice(0,3).map((e, j) => {
                     const c = C3.find(x => x.id === e.c);
+                    // 라이브 캘린더는 과제(due/submit)와 공지(notice)만 생성한다.
+                    // 학사/시험 'event' 데이터 소스가 없어 해당 분기는 제거 — 공지는 --accent-soft 로 칠한다.
                     const tone = e.kind === 'due'    ? { bg: c?.color || 'var(--accent)', text: 'white' }
                               : e.kind === 'submit' ? { bg: 'var(--ok)', text: 'white' }
-                              : e.kind === 'event'  ? { bg: 'var(--warn)', text: 'white' }
                               : { bg: 'var(--accent-soft)', text: 'var(--accent)' };
                     return (
                       <div key={j} className="text-[10.5px] truncate px-1.5 py-0.5 rounded"

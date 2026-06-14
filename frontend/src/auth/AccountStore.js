@@ -24,10 +24,49 @@ export const STUDENT_ID_REGEX = /^20\d{6}$/;
 function readAccounts() {
   try {
     const raw = localStorage.getItem(K_ACCOUNTS);
-    return raw ? JSON.parse(raw) : [];
+    const list = raw ? JSON.parse(raw) : [];
+    const { migrated, changed } = migrateLegacySecrets(list);
+    if (changed) {
+      // 잔존 시크릿 정리본을 다시 저장 (저장 실패해도 메모리상 정리본은 사용)
+      try { writeAccounts(migrated); } catch {}
+    }
+    return migrated;
   } catch {
     return [];
   }
+}
+
+/**
+ * 레거시 마이그레이션 — 예전 가입 계정에 평문으로 남아 있던
+ * notion.token / obsidian.authCode / claude.apiKey 를 읽는 시점에 제거하고
+ * 존재 여부(connected) 불리언으로 변환한다.
+ * (시크릿 값 자체는 어디에도 쓰이지 않으므로 localStorage 에 영속하지 않는다.
+ *  실제 연동은 백엔드 .env 설정으로 이루어짐. lms.password 는
+ *  getLmsCredentials 의 자동 재로그인에 실사용되므로 여기서 건드리지 않는다.)
+ */
+function migrateLegacySecrets(list) {
+  let changed = false;
+  const migrated = list.map(acc => {
+    if (!acc || typeof acc !== 'object') return acc;
+    const next = { ...acc };
+    if (next.notion && 'token' in next.notion) {
+      const { token, ...rest } = next.notion;
+      next.notion = { ...rest, connected: !!(rest.connected || token) };
+      changed = true;
+    }
+    if (next.obsidian && 'authCode' in next.obsidian) {
+      const { authCode, ...rest } = next.obsidian;
+      next.obsidian = { ...rest, connected: !!(rest.connected || authCode) };
+      changed = true;
+    }
+    if (next.claude && 'apiKey' in next.claude) {
+      const { apiKey, ...rest } = next.claude;
+      next.claude = { ...rest, connected: !!(rest.connected || apiKey) };
+      changed = true;
+    }
+    return next;
+  });
+  return { migrated, changed };
 }
 
 function writeAccounts(list) {
@@ -75,24 +114,34 @@ export async function signup(payload) {
     email:  lowerEmail,
     major:  payload.major || 'AI소프트웨어학부',
     createdAt: new Date().toISOString(),
-    // 연동 정보 (백엔드 붙으면 별도 secrets 테이블로 옮길 영역)
+    // 연동 정보 — 시크릿 값(notionToken/obsidianAuthCode/claudeApiKey)은
+    // 가입 시 백엔드 .env 로 전송만 하고 localStorage 에는 저장하지 않는다.
+    // 여기엔 존재 여부(connected = '백엔드로 제출됨') 와 비밀이 아닌 설정값만 보관.
+    // 자동 재로그인은 opt-in (#7) — autoRelogin 을 켰을 때만 LMS 비밀번호를
+    // localStorage 에 보관한다. 미선택 시 connected/id 만 저장하고 비밀번호는 생략 →
+    // 세션 만료 시 settings.jsx 에서 사용자가 직접 재입력(수동 폴백).
     lms: {
       id: payload.lmsId || '',
-      // ⚠️ 데모 단계에선 평문. 진짜 운영에선 백엔드 환경변수 / vault 로 옮겨야 함
-      password: payload.lmsPassword || '',
+      connected: !!payload.lmsId,
+      autoRelogin: !!payload.autoRelogin,
+      // ⚠️ 데모 단계에선 평문 보관. 진짜 운영에선 백엔드 환경변수 / vault 로 옮겨야 함
+      //    (getLmsCredentials 의 자동 재로그인에 실사용되는 유일한 시크릿)
+      //    autoRelogin 을 끈 경우엔 password 키 자체를 저장하지 않는다.
+      ...(payload.autoRelogin ? { password: payload.lmsPassword || '' } : {}),
     },
     notion: {
-      token:   payload.notionToken   || '',
-      pageId:  payload.notionPageId  || '',
+      connected: !!payload.notionToken,
+      pageId:    payload.notionPageId || '',
     },
     obsidian: {
-      authCode: payload.obsidianAuthCode || '',
-      vault:    payload.obsidianVault    || 'LMS_Bridge_Vault',
-      endpoint: payload.obsidianEndpoint || 'http://localhost:27124/mcp',
+      connected: !!payload.obsidianAuthCode,
+      vault:     payload.obsidianVault    || 'LMS_Bridge_Vault',
+      endpoint:  payload.obsidianEndpoint || 'http://localhost:27124/mcp',
     },
     claude: {
-      apiKey: payload.claudeApiKey || '',
-      model:  payload.claudeModel  || 'claude-haiku-4-5',
+      connected: !!payload.claudeApiKey,
+      // 모델 기본값은 Gemini 기준 — 실 모델값은 가입 시 백엔드 llm_model 로도 전송된다.
+      model:     payload.claudeModel || 'gemini-2.5-flash',
     },
   };
   writeAccounts([...list, account]);
@@ -156,6 +205,10 @@ export async function login(studentId, password) {
 /**
  * 현재 세션의 LMS 자격증명을 반환. (백엔드 /api/lms/login 자동 재시도용)
  *
+ * 자동 재로그인(opt-in, #7)을 켠 계정만 비밀번호를 보관하므로, 끈 계정(또는
+ * 비밀번호 키가 없는 계정)에 대해서는 null 을 반환한다 → 호출 측(settings.jsx /
+ * DataStore _relogin·refreshLms)이 수동 재입력 폴백을 사용한다.
+ *
  * ⚠️ 데모 단계에서 localStorage 평문 저장. 운영 단계에선 서버 측 vault 로 옮겨야 함.
  * @returns {{ id: string, password: string } | null}
  */
@@ -169,14 +222,23 @@ export function getLmsCredentials() {
 }
 
 /**
- * 현재 로그인된 사용자 정보를 반환. (앱 시작 시 AuthProvider 초기값으로 사용)
+ * 현재 로그인된 사용자 정보를 동기적으로 반환.
+ * (앱 시작 시 AuthProvider 의 useState 초기값 — 렌더 전에 동기로 필요)
+ * readAccounts 를 거치므로 레거시 시크릿 마이그레이션도 함께 수행된다.
  */
-export async function getCurrentUser() {
+export function getCurrentUserSync() {
   const studentId = localStorage.getItem(K_SESSION);
   if (!studentId) return null;
   const list = readAccounts();
   const acc = list.find(a => a.studentId === studentId);
   return acc ? stripSecrets(acc) : null;
+}
+
+/**
+ * 현재 로그인된 사용자 정보를 반환. (백엔드 전환 대비 async 버전)
+ */
+export async function getCurrentUser() {
+  return getCurrentUserSync();
 
   // ── 백엔드 연결 후 ─────────────────────────────────────────────────────────
   // const token = localStorage.getItem('ssu_token');
@@ -234,15 +296,18 @@ export function resetAllAccounts() {
   localStorage.removeItem(K_SESSION);
 }
 
-// 비밀번호 해시 / 토큰 같은 민감 필드를 제거한 사본 반환
+// 비밀번호 해시 / LMS 자격증명 같은 민감 필드를 제거한 사본 반환
 function stripSecrets(account) {
   const { passwordHash, lms, notion, claude, obsidian, ...safe } = account;
   return {
     ...safe,
-    // 연동 정보의 존재 여부만 노출 (실제 값은 숨김)
-    hasLms:      !!lms?.password,
-    hasNotion:   !!notion?.token,
-    hasObsidian: !!obsidian?.authCode,
-    hasClaude:   !!claude?.apiKey,
+    // 연동 정보의 존재 여부만 노출
+    // (notion/obsidian/claude 시크릿은 저장 자체를 안 하므로 connected 플래그에서 파생)
+    // LMS 는 자동 재로그인(opt-in)을 꺼도 연결된 상태이므로 connected/id 로 판단한다.
+    // (레거시 계정 호환: connected 키가 없으면 평문 password 잔존 여부로 폴백)
+    hasLms:      !!(lms?.connected || lms?.id || lms?.password),
+    hasNotion:   !!notion?.connected,
+    hasObsidian: !!obsidian?.connected,
+    hasClaude:   !!claude?.connected,
   };
 }

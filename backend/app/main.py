@@ -12,15 +12,18 @@ from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from httpx import HTTPStatusError
 
-from app.api.routes import assignments, chat, courses, lms, notices, sync
+from app.api.routes import assignments, chat, connectors, courses, lms, notices, sync
+from app.api.session_meta import SESSION_REFRESH_INTERVAL
 from app.config import settings
 from app.logger import setup_logging
 from app.mcp_client.setup import setup_mcp
+from app.services import notify_service
 
 API_TITLE = "SSU LMS Bridge API"
 API_VERSION = "0.1.0"
@@ -47,10 +50,41 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
         misfire_grace_time=3600,  # 서버가 잠시 꺼졌다 켜져도 1시간 내면 실행
     )
+    # ── 예약 세션 갱신 (SESSION_REFRESH_INTERVAL 주기) ───────
+    # auth.load_session 으로 lms·canvas 쿠키를 주기적으로 연장 — GET /api/lms/session
+    # 의 nextRefreshIn 카운트다운이 실재 동작을 가리키게 한다.
+    scheduler.add_job(
+        lms.run_scheduled_session_refresh,
+        IntervalTrigger(seconds=SESSION_REFRESH_INTERVAL),
+        id="session_refresh",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+    # ── 예약 이메일 알림 스캔 (#9) ───────────────────────────
+    # 마감 임박 과제/신규 공지를 주기적으로 스캔해 이메일 발송. SMTP 미설정이면
+    # job 자체를 등록하지 않는다 (Notion/Obsidian 의 is_configured 가드와 동일 정책).
+    # 실제 푸시(FCM/웹푸시)는 프론트 service worker 필요 → 범위 밖, 이메일만.
+    if notify_service.smtp_configured():
+        scheduler.add_job(
+            notify_service.scan_and_notify,
+            IntervalTrigger(minutes=settings.notify_scan_interval_minutes),
+            id="notify_scan",
+            replace_existing=True,
+            misfire_grace_time=600,
+        )
+
     scheduler.start()
     job = scheduler.get_job("daily_sync")
     nxt = job.next_run_time.strftime("%Y-%m-%d %H:%M") if job and job.next_run_time else "—"
     log.info(f"  · 예약 동기화    : 매일 {settings.sync_hour:02d}:00 (다음 실행 {nxt})")
+    log.info(f"  · 세션 자동 갱신 : {SESSION_REFRESH_INTERVAL}초 주기")
+    if notify_service.smtp_configured():
+        log.info(
+            f"  · 이메일 알림    : {settings.notify_scan_interval_minutes}분 주기 스캔 "
+            f"(마감 {settings.notify_deadline_hours}시간 전)"
+        )
+    else:
+        log.info("  · 이메일 알림    : SMTP 미설정 → 비활성")
 
     yield
 
@@ -103,6 +137,7 @@ app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(courses.router, prefix="/api", tags=["courses"])
 app.include_router(notices.router, prefix="/api", tags=["notices"])
 app.include_router(assignments.router, prefix="/api", tags=["assignments"])
+app.include_router(connectors.router, prefix="/api", tags=["connectors"])
 
 
 # ── 헬스 체크 / 루트 ──────────────────────────────────────────

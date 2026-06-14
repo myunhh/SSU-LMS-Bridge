@@ -3,12 +3,14 @@
 """
 SSU(숭실대학교) LMS SSO 로그인 세션 관리 모듈 (Playwright) - 세션 자동 연장 버전
 """
-import json
 import asyncio
+import json
+import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+
+from loguru import logger
+from playwright.async_api import Page, async_playwright
 
 
 class SSULMSAuthPlaywright:
@@ -22,13 +24,23 @@ class SSULMSAuthPlaywright:
 
         self.base_url = "https://lms.ssu.ac.kr"
         self.sso_url = "https://smartid.ssu.ac.kr"
+        # Canvas 호스트(쿠키 인증) — canvas_client.py 와 동일한 //lms.→//canvas. 치환 규칙
+        self.canvas_url = (
+            os.getenv("CANVAS_BASE_URL", "").rstrip("/")
+            or self.base_url.replace("//lms.", "//canvas.")
+        )
 
     async def login(self, student_id: str, password: str) -> bool:
-        """SSU SSO 로그인 후 세션을 JSON 파일로 저장"""
+        """SSU SSO 로그인 후 세션을 JSON 파일로 저장.
+
+        반환값 False 는 '자격증명 불일치'만 의미한다. Chromium 미설치·네트워크
+        단절·SSO 페이지 변경(TimeoutError) 같은 인프라 오류는 그대로 전파해
+        호출부(routes/lms.py)가 401 과 구분(502)해 응답할 수 있게 한다.
+        """
         async with async_playwright() as p:
             browser = None
             try:
-                print("🌐 브라우저 시작...")
+                logger.info("[Auth] 브라우저 시작…")
                 browser = await p.chromium.launch(headless=self.headless)
                 context = await browser.new_context(
                     viewport={'width': 1280, 'height': 720},
@@ -36,17 +48,16 @@ class SSULMSAuthPlaywright:
                 )
                 page = await context.new_page()
 
-                print("1️⃣  SSU LMS 접속...")
+                logger.info("[Auth] SSU SSO 로그인 페이지 접속…")
                 await page.goto(
                     f"{self.sso_url}/Symtra_sso/smln.asp?apiReturnUrl=https%3A%2F%2Flms.ssu.ac.kr%2Fxn-sso%2Fgw-cb.php",
                     wait_until="networkidle"
                 )
 
                 if self.sso_url not in page.url:
-                    print(f"⚠️  예상치 못한 URL: {page.url}")
-                print("2️⃣  SSU SSO 로그인 페이지 도달")
+                    logger.warning(f"[Auth] 예상치 못한 URL: {page.url}")
 
-                print("3️⃣  인증 정보 입력...")
+                logger.info("[Auth] 인증 정보 입력…")
                 id_selector = 'input[name="userid"], input[name="username"], input[name="id"]'
 
                 await page.wait_for_selector(id_selector, timeout=5000)
@@ -55,7 +66,7 @@ class SSULMSAuthPlaywright:
                 await page.fill('input[type="password"]', password)
                 await asyncio.sleep(0.3)
 
-                print("4️⃣  로그인 요청...")
+                logger.info("[Auth] 로그인 요청…")
                 login_btn_selector = (
                     'input[type="submit"], button[type="submit"], '
                     'button:has-text("로그인"), a:has-text("로그인"), '
@@ -65,17 +76,18 @@ class SSULMSAuthPlaywright:
                 async with page.expect_navigation(timeout=15000, wait_until="networkidle"):
                     await page.click(login_btn_selector)
 
+                # 자격증명 실패 → False (인프라 오류와 구분되는 유일한 False 경로)
                 if self.sso_url in page.url or 'login' in page.url.lower():
-                    print("❌ 로그인 실패: 학번/비밀번호를 확인하세요")
+                    logger.warning("[Auth] 로그인 실패: 학번/비밀번호 불일치")
                     return False
 
                 await asyncio.sleep(2)
 
                 if 'login.php' in page.url or self.sso_url in page.url:
-                    print("❌ 로그인 실패")
+                    logger.warning("[Auth] 로그인 실패: 학번/비밀번호 불일치")
                     return False
 
-                print("5️⃣  세션 저장 중...")
+                logger.info("[Auth] 세션 저장 중…")
 
                 cookies = await context.cookies()
                 storage_state = await context.storage_state()
@@ -84,13 +96,9 @@ class SSULMSAuthPlaywright:
                 self._save_session(cookies, storage_state)
 
                 self.is_authenticated = True
-                print(f"✅ SSU LMS 로그인 성공: {self.user_info.get('name', student_id)}")
+                logger.info(f"[Auth] SSU LMS 로그인 성공: {self.user_info.get('name', student_id)}")
 
                 return True
-
-            except Exception as e:
-                print(f"❌ 오류: {str(e)}")
-                return False
 
             finally:
                 if browser:
@@ -111,15 +119,26 @@ class SSULMSAuthPlaywright:
                         if name_match:
                             self.user_info['name'] = name_match.group(1)
                             break
-                except:
+                except Exception:
                     continue
 
             self.user_info['login_time'] = datetime.now().isoformat()
-        except:
+        except Exception:
             self.user_info = {'login_time': datetime.now().isoformat()}
 
     def _save_session(self, cookies: list, storage_state: dict):
-        """세션 정보를 JSON 파일로 저장"""
+        """세션 정보를 JSON 파일로 원자적 저장.
+
+        같은 디렉토리의 tmp 파일에 0600 으로 먼저 쓴 뒤 os.replace 로 원자 교체한다
+        (study_server._save · connectors._upsert_env_file 와 동일 규약). 기존처럼
+        O_TRUNC 로 제자리에서 덮어쓰면 쓰기 도중 중단·동시 쓰기 시 세션 파일이
+        반쯤 잘린 채 손상돼 직전 유효 세션마저 날아간다 — load_session 이 그걸
+        '세션 무효(재로그인 필요)'로 오판한다. os.replace 는 같은 파일시스템에서
+        원자적이라 교체 실패해도 직전 유효 세션 파일이 그대로 보존된다.
+
+        tmp 도 처음부터 0600(os.open mode)으로 만든다 — 시크릿(SSO 쿠키·xn_api_token)이
+        잠깐이라도 0644 로 노출되는 창을 없앤다.
+        """
         try:
             session_data = {
                 'cookies': cookies,
@@ -128,133 +147,101 @@ class SSULMSAuthPlaywright:
                 'saved_at': datetime.now().isoformat()
             }
 
-            with open(self.session_file, 'w', encoding='utf-8') as f:
-                json.dump(session_data, f, indent=2, ensure_ascii=False)
+            # 같은 디렉토리 tmp (os.replace 는 동일 파일시스템에서만 원자적)
+            tmp = self.session_file.with_suffix(self.session_file.suffix + '.tmp')
 
-            print(f"💾 세션 저장 완료: {self.session_file}")
+            # 세션 토큰(SSO 쿠키·xn_api_token) 노출 방지 — 소유자만 읽기/쓰기(0600)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(session_data, f, indent=2, ensure_ascii=False)
+                # O_CREAT 의 mode 는 신규 생성 시에만 적용 — tmp 가 기존 0644 로
+                # 남아 있었다면 0600 으로 좁힌다 (replace 전이라 본 파일엔 영향 없음)
+                os.chmod(tmp, 0o600)
+                # 원자 교체 — 여기서 실패해도 직전 유효 세션 파일은 그대로 보존된다
+                os.replace(tmp, self.session_file)
+            except BaseException:
+                # 교체 전 실패 시 반쯤 쓰인 tmp 잔여물 정리 (본 파일은 무손상)
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
 
-        except Exception as e:
-            print(f"❌ 세션 저장 실패: {str(e)}")
+            logger.info(f"[Auth] 세션 저장 완료: {self.session_file}")
+
+        except Exception:
+            logger.exception("[Auth] 세션 저장 실패")
 
     async def load_session(self) -> bool:
-        """저장된 세션을 로드하고, 유효하다면 최신 세션 상태로 업데이트하여 덮어씀"""
+        """저장된 세션을 로드하고, 유효하다면 최신 세션 상태로 업데이트하여 덮어씀.
+
+        lms.ssu.ac.kr 와 canvas.ssu.ac.kr 두 호스트 쿠키를 함께 연장한다 — Canvas
+        호스트(쿠키 인증)를 방문하지 않으면 _normandy_session 같은 Canvas 쿠키가
+        갱신되지 않아 예약 sync 가 Canvas 우선 경로에서 폴백·결측을 겪는다.
+
+        반환값 False 는 '세션 무효(파일 없음/손상/만료) = 재로그인 필요'만 의미한다.
+        Playwright 구동·페이지 접속 단계의 인프라 오류는 그대로 전파해
+        호출부(routes/lms.py · routes/sync.py)가 401 과 구분해 응답할 수 있게 한다.
+        """
         if not self.session_file.exists():
-            print("⚠️  저장된 세션 파일 없음")
+            logger.warning("[Auth] 저장된 세션 파일 없음")
             return False
 
-        browser = None
+        # 세션 파일 손상(JSON 파싱 실패, storage_state 누락 등) → 재로그인 필요
         try:
-            with open(self.session_file, 'r', encoding='utf-8') as f:
+            with open(self.session_file, encoding='utf-8') as f:
                 session_data = json.load(f)
+            storage_state = session_data['storage_state']
+        except Exception as e:
+            logger.warning(f"[Auth] 세션 파일 손상 — 재로그인 필요: {e}")
+            return False
 
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=self.headless)
+        # 이 아래(Playwright 단계)의 예외는 세션 무효가 아니라 인프라 오류 → 전파
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=self.headless)
+            try:
                 context = await browser.new_context(
-                    storage_state=session_data['storage_state'],
+                    storage_state=storage_state,
                     viewport={'width': 1280, 'height': 720},
                     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 )
                 page = await context.new_page()
 
                 # LMS 메인에 접속하여 세션 연장 유도
-                print("🔄 세션 유효성 검증 및 연장 요청 중...")
+                logger.info("[Auth] 세션 유효성 검증 및 연장 요청 중…")
                 await page.goto(f"{self.base_url}/main.php", timeout=15000, wait_until="networkidle")
                 await asyncio.sleep(2)
 
                 # 만료되어 로그인 창으로 튕겼는지 확인
                 if 'login' in page.url or self.sso_url in page.url:
-                    print("⚠️  세션 만료됨 (재로그인 필요)")
-                    await browser.close()
+                    logger.warning("[Auth] 세션 만료됨 (재로그인 필요)")
                     return False
 
-                # 세션이 유효하므로 새로 갱신된 쿠키/스토리지 상태 추출
-                updated_cookies = await context.cookies()
-                updated_storage_state = await context.storage_state()
-
+                # 사용자 정보 추출은 page 가 아직 lms main.php 에 있을 때 수행한다
+                # (아래 canvas 방문 후엔 page.url 이 canvas 로 바뀌므로). 읽기 전용.
                 if not session_data.get('user_info', {}).get('name'):
                     await self._extract_user_info(page)
                 else:
                     self.user_info = session_data['user_info']
 
+                # Canvas 호스트(canvas.ssu.ac.kr — 쿠키 인증)도 방문해 _normandy_session 등
+                # Canvas 쿠키를 함께 재발급/연장한다. 실패해도 LMS 세션 연장은 유효하므로
+                # 경고만 남긴다 (반환 계약 불변 — False 는 여전히 '세션 무효'만 의미).
+                try:
+                    await page.goto(f"{self.canvas_url}/", timeout=15000, wait_until="networkidle")
+                except Exception as e:
+                    logger.warning(f"[Auth] Canvas 세션 연장 방문 실패 — LMS 세션만 연장됨: {e}")
+
+                # 세션이 유효하므로 새로 갱신된 쿠키/스토리지 상태 추출 (canvas 방문 후)
+                updated_cookies = await context.cookies()
+                updated_storage_state = await context.storage_state()
+
                 # 갱신된 최신 토큰으로 파일 덮어쓰기 (만료 시간 초기화)
                 self._save_session(updated_cookies, updated_storage_state)
                 self.is_authenticated = True
 
-                print(f"✅ 세션 연장 완료! (이전 저장 시각: {session_data.get('saved_at')})")
-                await browser.close()
+                logger.info(f"[Auth] 세션 연장 완료 (이전 저장 시각: {session_data.get('saved_at')})")
                 return True
-
-        except Exception as e:
-            print(f"❌ 세션 로드 및 연장 중 오류 발생: {str(e)}")
-            if browser:
+            finally:
                 await browser.close()
-            return False
-
-    def get_session_data(self) -> Dict:
-        """저장된 세션 데이터 반환"""
-        if not self.session_file.exists():
-            return {}
-        with open(self.session_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
-
-
-class SSULMSAuth:
-    """동기 방식 래퍼 (간편 사용)"""
-
-    def __init__(self, session_file: str = "ssu_lms_session.json", headless: bool = True):
-        self.auth = SSULMSAuthPlaywright(session_file, headless)
-
-    def login(self, student_id: str, password: str) -> bool:
-        return asyncio.run(self.auth.login(student_id, password))
-
-    def load_session(self) -> bool:
-        return asyncio.run(self.auth.load_session())
-
-    def get_session_data(self) -> Dict:
-        return self.auth.get_session_data()
-
-
-# 1번 방식: 주기적으로 세션을 갱신해 주는 비동기 루프 함수
-async def session_keeper_loop(auth_playwright: SSULMSAuthPlaywright, interval_seconds: int = 5400):
-    """
-    지정한 시간(기본 1시간 30분)마다 대시보드를 찔러서 쿠키를 무한 연장하는 루프
-    """
-    print(f"\n🚀 세션 자동 연장 루프 가동 시작 (주기: {interval_seconds}초)")
-    while True:
-        try:
-            print(f"\n⏱️  [{datetime.now().strftime('%H:%M:%S')}] 주기적 세션 갱신 예약 수행...")
-            success = await auth_playwright.load_session()
-            if not success:
-                print("❌ 백그라운드 세션 연장 실패. 세션 파일이 유효하지 않거나 만료되었습니다.")
-        except Exception as e:
-            print(f"❌ 루프 내부 오류 발생: {e}")
-        
-        await asyncio.sleep(interval_seconds)
-
-
-async def main_async():
-    print("=" * 60)
-    print("SSU(숭실대) LMS SSO 로그인 및 세션 유지")
-    print("=" * 60)
-
-    # 갱신 과정을 눈으로 확인하려면 headless=False로 두고 사용하세요.
-    # 완전히 백그라운드 구동을 원하시면 headless=True로 변경하시면 됩니다.
-    auth_obj = SSULMSAuthPlaywright(headless=False)
-
-    # 1. 기존 세션이 있다면 먼저 로드 및 연장 시도
-    if await auth_obj.load_session():
-        print("🎉 기존 세션을 자동으로 연장하여 이어서 사용합니다.")
-    else:
-        # 2. 기존 세션이 없거나 이미 만료되었다면 새로 로그인 수행
-        student_id = input("\n학번: ")
-        password = input("비밀번호: ")
-        if not await auth_obj.login(student_id, password):
-            print("\n로그인에 실패하여 프로그램을 종료합니다.")
-            return
-
-    # 3. 로그인/세션 로드 완료 후 1시간 30분(5400초)마다 무한 연장 백그라운드 루프 진입
-    await session_keeper_loop(auth_obj, interval_seconds=5400)
-
-
-if __name__ == "__main__":
-    asyncio.run(main_async())

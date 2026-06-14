@@ -18,22 +18,45 @@
 - `/mcp/obsidian/sse`
 - `/mcp/obsidian/messages/`
 
-토큰 / 인증코드가 비어 있는 MCP 는 마운트를 건너뛴다 (개발 편의).
+토큰 / 인증코드가 비어 있거나 placeholder('xxxx', .env.example 견본값)인 MCP 는
+마운트를 건너뛴다 — routes/sync.py · routes/connectors.py 와 같은
+`config.is_configured` 규칙 (커넥터 위젯은 disconnected 인데 LLM 채팅에는
+notion__* tool 이 노출되는 불일치 방지).
 """
 from fastapi import FastAPI
 from loguru import logger
 
-from app.config import Settings
+from app.config import Settings, is_configured
+from app.mcp_client.lms_server import create_lms_mcp_server
 from app.mcp_client.notion_server import create_notion_mcp_server
 from app.mcp_client.obsidian_server import create_obsidian_mcp_server
 from app.mcp_client.sse_app import build_mcp_sse_app
+from app.mcp_client.study_server import create_study_mcp_server
 
 
 def setup_mcp(app: FastAPI, settings: Settings) -> None:
-    """FastAPI 앱에 Notion / Obsidian MCP SSE 엔드포인트를 마운트한다."""
+    """FastAPI 앱에 LMS / Notion / Obsidian MCP SSE 엔드포인트를 마운트한다."""
+
+    # ── LMS ────────────────────────────────────────────────
+    # LMS 는 토큰 설정이 없으므로 is_configured 가드 없이 항상 마운트한다.
+    # 세션 미존재는 도구 호출 시점에 한국어 안내(NO_SESSION_MSG)로 처리하므로
+    # 마운트는 안전하다. (deps.py:_build_registry 의 lms 등록도 동일하게 무조건 —
+    # 마운트/등록 두 조건이 일치해야 미마운트 URL 에 클라이언트가 붙는 불일치를 막는다.)
+    lms_server = create_lms_mcp_server(session_file=str(settings.session_cache_abspath))
+    app.mount("/mcp/lms", build_mcp_sse_app(lms_server, "/mcp/lms"))
+    logger.info(f"[MCP] LMS 마운트: {settings.lms_mcp_url}")
+
+    # ── Study (학습 도우미) ─────────────────────────────────
+    # LMS 와 동일하게 토큰 설정이 없으므로 is_configured 가드 없이 항상 마운트한다.
+    # 저장소는 로컬 JSON 파일뿐이라 세션/외부 의존도 없다(study_server.py).
+    # (deps.py:_build_registry 의 study 등록도 무조건 — 마운트/등록 두 조건이 짝이라야
+    #  미마운트 URL 에 클라이언트가 붙는 불일치를 막는다. LMS 와 동일 규약.)
+    study_server = create_study_mcp_server()
+    app.mount("/mcp/study", build_mcp_sse_app(study_server, "/mcp/study"))
+    logger.info(f"[MCP] Study 마운트: {settings.study_mcp_url}")
 
     # ── Notion ─────────────────────────────────────────────
-    if settings.notion_token and settings.notion_root_page_id:
+    if is_configured(settings.notion_token, settings.notion_root_page_id):
         notion_server = create_notion_mcp_server(
             token=settings.notion_token,
             root_page_id=settings.notion_root_page_id,
@@ -42,20 +65,23 @@ def setup_mcp(app: FastAPI, settings: Settings) -> None:
         logger.info(f"[MCP] Notion 마운트: {settings.notion_mcp_url}")
     else:
         logger.warning(
-            "[MCP] NOTION_TOKEN / NOTION_ROOT_PAGE_ID 미설정 → Notion MCP 건너뜀"
+            "[MCP] NOTION_TOKEN / NOTION_ROOT_PAGE_ID 미설정(또는 placeholder) → Notion MCP 건너뜀"
         )
 
     # ── Obsidian ───────────────────────────────────────────
     # obsidian_vault_path 는 vault 내부 상대 경로 → 보통 빈 문자열("")이 정상이므로
     # 마운트 조건에서 제외하고, auth_code 만으로 활성화 여부를 판단한다.
-    if settings.obsidian_mcp_auth_code:
+    if is_configured(settings.obsidian_mcp_auth_code):
         obsidian_server = create_obsidian_mcp_server(
             auth_code=settings.obsidian_mcp_auth_code,
             vault_path=settings.obsidian_vault_path,
+            # 상태 핑(routes/connectors.py)과 같은 URL 을 쓰도록 settings 로 일원화
+            # — .env 의 OBSIDIAN_BASE_URL 변경이 MCP 도구 호출에도 반영된다.
+            base_url=settings.obsidian_base_url,
         )
         app.mount("/mcp/obsidian", build_mcp_sse_app(obsidian_server, "/mcp/obsidian"))
         logger.info(f"[MCP] Obsidian 마운트: {settings.obsidian_mcp_url}")
     else:
         logger.warning(
-            "[MCP] OBSIDIAN_MCP_AUTH_CODE 미설정 → Obsidian MCP 건너뜀"
+            "[MCP] OBSIDIAN_MCP_AUTH_CODE 미설정(또는 placeholder) → Obsidian MCP 건너뜀"
         )

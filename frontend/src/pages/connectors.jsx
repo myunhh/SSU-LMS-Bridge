@@ -4,15 +4,24 @@ import { useData } from '../data/DataStore';
 import { formatSessionExpiry, formatSessionAge } from '../api/lmsAuth';
 import Icn from './icons';
 
+// 커넥터별 공식 문서 URL (gmail 은 미지원이라 제외)
+const DOCS = {
+  lms: 'https://lms.ssu.ac.kr',
+  notion: 'https://developers.notion.com/',
+  obsidian: 'https://github.com/coddingtonbear/obsidian-local-rest-api',
+  llm: 'https://docs.litellm.ai/',
+};
+
 /* ============== Connectors ============== */
 function ConnectorsView() {
   const {
-    connectors: CN, toggleConnector,
+    connectors: CN, connectorsLoaded, reloadConnectors, saveConnectorConfig,
     user, lmsSession, lmsBusy, loginLms, refreshLms,
-    courses,
+    courses, lastSyncAt, syncHour,
   } = useData();
   const [selected, setSelected] = cnS('llm');
   const [lmsForm, setLmsForm] = cnS({ studentId: user?.studentId || '', password: '' });
+  const [cnBusy, setCnBusy] = cnS(false);
   const conn = CN.find(c => c.id === selected) || CN[0];
   const lmsActive = !!lmsSession?.active;
   // LMS 카운트는 lmsSession 실제 상태로 보정 (mockData 의 connected 값 무시)
@@ -40,6 +49,11 @@ function ConnectorsView() {
     return <div className={cls}/>;
   };
 
+  const refresh = async () => {
+    setCnBusy(true);
+    try { await reloadConnectors(); } finally { setCnBusy(false); }
+  };
+
   return (
     <div className="px-7 py-6 max-w-[1200px]">
       <div className="grid grid-cols-12 gap-5">
@@ -47,18 +61,25 @@ function ConnectorsView() {
           <header className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-[var(--line)]">
             <div>
               <div className="text-[14.5px] font-semibold">커넥터</div>
-              <div className="text-[11.5px] text-zinc-500">{CN.length}개 중 {connectedCount}개 연결됨</div>
+              <div className="text-[11.5px] text-zinc-500">
+                {connectorsLoaded ? `${CN.length}개 중 ${connectedCount}개 연결됨` : '상태 확인 중…'}
+              </div>
             </div>
-            <button className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px] flex items-center gap-1.5 hover:bg-zinc-50">
-              <Icn.Plus size={13}/> 추가
+            <button
+              onClick={refresh} disabled={cnBusy}
+              className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px] flex items-center gap-1.5 hover:bg-zinc-50 disabled:opacity-50"
+            >
+              <Icn.Sync size={13} className={cnBusy ? 'animate-spin' : ''}/> 새로고침
             </button>
           </header>
           <div className="divide-y divide-[var(--line-2)]">
             {CN.map(c => {
               const active = selected === c.id;
-              // LMS 는 실제 lmsSession 상태로 덮어씀
+              // LMS 는 실제 lmsSession 상태로 덮어씀. 그 외는 응답 전이면 '확인 중'.
+              const pending = !connectorsLoaded && c.id !== 'lms';
               const status = c.id === 'lms' ? (lmsActive ? 'connected' : 'disconnected') : c.status;
               const last   = c.id === 'lms' && lmsActive ? formatSessionAge(lmsSession.savedAt) : c.last;
+              const label  = pending ? '확인 중' : status === 'connected' ? '연결됨' : '미연결';
               return (
                 <button key={c.id} onClick={() => setSelected(c.id)}
                   className={`w-full px-5 py-3.5 flex items-center gap-3.5 text-left ${active ? 'bg-[var(--accent-soft)]/50' : 'hover:bg-[var(--line-2)]/40'}`}>
@@ -67,11 +88,11 @@ function ConnectorsView() {
                     <div className="flex items-center gap-2">
                       <span className="text-[13.5px] font-medium">{c.name}</span>
                       <span className={`text-[10.5px] mono px-1.5 py-0.5 rounded-md flex items-center gap-1
-                        ${status === 'connected'
+                        ${!pending && status === 'connected'
                           ? 'bg-emerald-50 text-[var(--ok)]'
                           : 'bg-zinc-100 text-zinc-500'}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${status==='connected' ? 'bg-[var(--ok)]' : 'bg-zinc-400'}`}/>
-                        {status === 'connected' ? '연결됨' : '미연결'}
+                        <span className={`h-1.5 w-1.5 rounded-full ${!pending && status==='connected' ? 'bg-[var(--ok)]' : 'bg-zinc-400'}`}/>
+                        {label}
                       </span>
                     </div>
                     <div className="text-[11.5px] text-zinc-500 mt-0.5 mono truncate">{c.kind} · {c.host}</div>
@@ -96,38 +117,30 @@ function ConnectorsView() {
                 <div className="text-[15px] font-semibold tracking-tight">{conn.name}</div>
                 <div className="text-[11.5px] text-zinc-500 mono">{conn.kind}</div>
               </div>
-              <button className="text-[11.5px] mono text-zinc-500 hover:text-zinc-900 flex items-center gap-1">
-                <Icn.External size={12}/> docs
-              </button>
+              {DOCS[conn.id] && (
+                <a href={DOCS[conn.id]} target="_blank" rel="noreferrer"
+                  className="text-[11.5px] mono text-zinc-500 hover:text-zinc-900 flex items-center gap-1">
+                  <Icn.External size={12}/> docs
+                </a>
+              )}
             </div>
 
+            {/* 비-LMS 커넥터: 키 입력 폼 + 저장 (백엔드 .env 에 upsert) */}
             {conn.id === 'llm' && (
               <div className="mt-5 space-y-3">
-                <Field label="Provider">
-                  <select defaultValue="anthropic" className="ssu-input">
-                    <option value="anthropic">Anthropic — Claude Haiku 4.5</option>
-                    <option>OpenAI — GPT-4o-mini</option>
-                    <option>Google — Gemini 2.0 Flash</option>
-                  </select>
-                </Field>
-                <Field label="API Key" mono>
-                  <input type="password" defaultValue="sk-ant-•••••••••••••••••rL2k" className="ssu-input mono"/>
-                </Field>
-                <Field label="모델 별칭" mono>
-                  <input defaultValue="claude-haiku-4-5" className="ssu-input mono"/>
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Temperature" mono><input defaultValue="0.4" className="ssu-input mono"/></Field>
-                  <Field label="Max tokens" mono><input defaultValue="2048" className="ssu-input mono"/></Field>
-                </div>
-                <div className="rounded-lg bg-zinc-50 border border-[var(--line)] p-3 text-[11.5px]">
-                  <div className="flex items-center justify-between mono text-zinc-500">
-                    <span>24h 사용량</span><span className="text-zinc-900">14,219 / 200,000 tok</span>
-                  </div>
-                  <div className="h-1.5 bg-zinc-200 rounded-full mt-2 overflow-hidden">
-                    <div className="h-full accent-bg rounded-full" style={{ width: '7.1%' }}/>
-                  </div>
-                </div>
+                <ReadOnlyMeta meta={conn.meta}/>
+                <ConnectorConfigForm
+                  saveConnectorConfig={saveConnectorConfig}
+                  fields={[
+                    { key: 'llm_api_key',  label: 'LLM_API_KEY',  secret: true,  placeholder: '저장됨 — 변경 시 입력' },
+                    { key: 'llm_model',    label: 'LLM_MODEL',    placeholder: 'gemini-2.5-flash' },
+                    { key: 'llm_provider', label: 'LLM_PROVIDER', placeholder: 'gemini' },
+                  ]}
+                />
+                <EnvNote>
+                  <code>LLM_API_KEY</code> / <code>LLM_MODEL</code> / <code>LLM_PROVIDER</code> 는
+                  저장 즉시 반영됩니다 (백엔드 재시작 불필요).
+                </EnvNote>
               </div>
             )}
 
@@ -180,24 +193,45 @@ function ConnectorsView() {
 
             {conn.id === 'notion' && (
               <div className="mt-5 space-y-3">
-                <Field label="Internal Token"><input type="password" defaultValue="secret_•••••••••••••" className="ssu-input mono"/></Field>
-                <Field label="루트 페이지 ID" mono><input defaultValue="33b65931485c800b8075fa58f68f8992" className="ssu-input mono"/></Field>
+                <ReadOnlyMeta meta={conn.meta}/>
                 <Field label="동기화 항목">
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    {['공지', '과제', '메타데이터', '강의 목록'].map(t => (
+                    {['공지', '과제'].map(t => (
                       <span key={t} className="text-[11.5px] px-2 py-1 rounded-md bg-[var(--accent-soft)] text-[var(--accent)]">{t}</span>
                     ))}
                   </div>
                 </Field>
+                <ConnectorConfigForm
+                  saveConnectorConfig={saveConnectorConfig}
+                  fields={[
+                    { key: 'notion_token',        label: 'NOTION_TOKEN',        secret: true, placeholder: 'secret_…' },
+                    { key: 'notion_root_page_id', label: 'NOTION_ROOT_PAGE_ID', placeholder: '32자리 페이지 ID' },
+                  ]}
+                />
+                <EnvNote>
+                  <code>NOTION_TOKEN</code> / <code>NOTION_ROOT_PAGE_ID</code> 저장 후 Notion 동기화는
+                  <strong className="font-medium"> 백엔드 재시작 후</strong> 반영됩니다.
+                </EnvNote>
               </div>
             )}
 
             {conn.id === 'obsidian' && (
               <div className="mt-5 space-y-3">
-                <Field label="Auth Code"><input type="password" defaultValue="obs_•••••••••••" className="ssu-input mono"/></Field>
-                <Field label="Vault 경로"><input defaultValue="LMS_Bridge_Vault" className="ssu-input mono"/></Field>
-                <Field label="MCP Endpoint" mono><input defaultValue="http://localhost:27124/mcp" className="ssu-input mono"/></Field>
-                <div className="text-[11.5px] mono text-zinc-500">파일 153개 · _manifest.json SHA-256 해시 추적 중</div>
+                <ReadOnlyMeta meta={conn.meta}/>
+                <ConnectorConfigForm
+                  saveConnectorConfig={saveConnectorConfig}
+                  fields={[
+                    { key: 'obsidian_mcp_auth_code', label: 'OBSIDIAN_MCP_AUTH_CODE', secret: true, placeholder: 'Local REST API API Key' },
+                    { key: 'obsidian_base_url',      label: 'OBSIDIAN_BASE_URL',      placeholder: 'http://localhost:27123' },
+                    // vault 내부 상대 경로 — 빈 문자열("")도 정상값(vault 루트). 사용자가 명시 입력한 경우에만 전송.
+                    { key: 'obsidian_vault_path',    label: 'OBSIDIAN_VAULT_PATH',    placeholder: '비워두면 vault 루트 (예: LMS)', allowEmpty: true },
+                  ]}
+                />
+                <EnvNote>
+                  <code>OBSIDIAN_VAULT_PATH</code> 는 vault 내부 상대 경로라
+                  <strong className="font-medium"> 빈 값(vault 루트)도 정상</strong>입니다 (절대 경로 아님).
+                  저장 후 Obsidian 연동은 <strong className="font-medium">백엔드 재시작 후</strong> 반영됩니다 (Local REST API 플러그인 필요).
+                </EnvNote>
               </div>
             )}
 
@@ -205,9 +239,12 @@ function ConnectorsView() {
               <div className="mt-5">
                 <div className="rounded-lg border border-dashed border-[var(--line)] p-5 text-center">
                   <Icn.Mail size={22} className="mx-auto text-zinc-400"/>
-                  <div className="text-[13px] mt-2 font-medium">Gmail에 연결</div>
-                  <div className="text-[11.5px] text-zinc-500 mt-1">마감 24시간 전 메일 알림을 받습니다.</div>
-                  <button className="mt-3 h-9 px-4 rounded-lg accent-bg text-white text-[12.5px]">OAuth로 연결</button>
+                  <div className="text-[13px] mt-2 font-medium">Gmail 연동</div>
+                  <div className="text-[11.5px] text-zinc-500 mt-1">Gmail 연동은 아직 백엔드가 지원하지 않습니다.</div>
+                  <button disabled
+                    className="mt-3 h-9 px-4 rounded-lg bg-zinc-100 text-zinc-400 text-[12.5px] cursor-not-allowed">
+                    준비 중 (로드맵)
+                  </button>
                 </div>
               </div>
             )}
@@ -219,7 +256,7 @@ function ConnectorsView() {
                   : `마지막 점검 · ${conn.last}`}
               </div>
               <div className="flex items-center gap-1.5">
-                {/* LMS 만 실제 동작 — 다른 커넥터는 토글 mock */}
+                {/* LMS 만 로그인/갱신 동작. 그 외 커넥터는 상태 새로고침만 (설정은 .env). */}
                 {conn.id === 'lms' ? (
                   <>
                     <button
@@ -239,27 +276,33 @@ function ConnectorsView() {
                     </button>
                   </>
                 ) : (
-                  <>
-                    <button
-                      onClick={() => toggleConnector(conn.id)}
-                      className={`h-8 px-3 rounded-md border text-[12px] flex items-center gap-1.5 ${conn.status === 'connected' ? 'border-[var(--line)] bg-white hover:bg-zinc-50 text-[var(--danger)]' : 'border-[var(--line)] bg-white hover:bg-zinc-50'}`}
-                    >
-                      {conn.status === 'connected' ? '연결 해제' : '연결하기'}
-                    </button>
-                    <button className="h-8 px-3 rounded-md accent-bg text-white text-[12px]">저장</button>
-                  </>
+                  <button
+                    onClick={refresh} disabled={cnBusy}
+                    className="h-8 px-3 rounded-md border border-[var(--line)] bg-white text-[12px] flex items-center gap-1.5 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    <Icn.Sync size={13} className={cnBusy ? 'animate-spin' : ''}/> 상태 새로고침
+                  </button>
                 )}
               </div>
             </div>
           </div>
 
+          {/* 예약 동기화 — 읽기 전용 (백엔드 .env 의 SYNC_HOUR / APScheduler 관리) */}
           <div className="ssu-card p-5">
-            <div className="text-[13px] font-semibold mb-3">동기화 스케줄러</div>
+            <div className="text-[13px] font-semibold mb-3">예약 동기화</div>
             <div className="space-y-2.5">
-              <Toggle label="자동 동기화" sub="매일 새벽 4시 (LMS 갱신 후) · APScheduler" on/>
-              <Toggle label="파일 다운로드" sub="강의 교안을 Vault에 자동 저장" on/>
-              <Toggle label="마감 24시간 전 알림" sub="브라우저 푸시 + 데스크탑 알림"/>
-              <Toggle label="새 공지 즉시 푸시" sub="LMS 폴링 주기 5분"/>
+              <ScheduleRow
+                label="자동 동기화"
+                sub={`매일 ${String(syncHour ?? 4).padStart(2, '0')}:00 자동 실행 · APScheduler`}
+                badge="활성" tone="ok"
+              />
+              <ScheduleRow
+                label="마지막 동기화"
+                sub={lastSyncAt ? lastSyncAt.toLocaleString('ko-KR') : '아직 실행되지 않음'}
+              />
+              <ScheduleRow label="파일 다운로드" sub="강의 교안은 LTI 뷰어 뒤라 범위 밖" badge="준비 중" dim/>
+              <ScheduleRow label="마감 24시간 전 알림" sub="알림 발송 백엔드 미구현" badge="준비 중" dim/>
+              <ScheduleRow label="새 공지 즉시 푸시" sub="알림 발송 백엔드 미구현" badge="준비 중" dim/>
             </div>
           </div>
         </section>
@@ -275,19 +318,97 @@ const Field = ({ label, children, mono }) => (
   </label>
 );
 
-const Toggle = ({ label, sub, on }) => {
-  const [v, setV] = cnS(!!on);
+// 커넥터 키 입력 폼 — Notion/Obsidian/LLM 공용.
+// fields: [{ key, label, secret?, placeholder?, allowEmpty? }]
+//   - secret    : password 입력 + 저장 성공 시 값 비움(시크릿은 응답에 에코 안 됨)
+//   - allowEmpty : 빈 문자열도 정상값(obsidian_vault_path). 사용자가 명시 입력(touched)한 경우에만 전송.
+// payload 규약: 빈 입력 필드는 제외. allowEmpty 필드는 touched && 입력값이 있을 때만 포함
+//   (빈 문자열 전송은 의도적 '루트로 변경' 이라 touched 라도 빈값은 보내지 않음 — 안전 측 선택).
+function ConnectorConfigForm({ fields, saveConnectorConfig }) {
+  const [vals, setVals] = cnS(() => Object.fromEntries(fields.map(f => [f.key, ''])));
+  const [busy, setBusy] = cnS(false);
+
+  const setField = (key, v) => setVals(s => ({ ...s, [key]: v }));
+
+  // 보낼 게 하나라도 있는지 (모든 필드가 빈값이면 저장 버튼 비활성)
+  const hasInput = fields.some(f => (vals[f.key] || '').trim() !== '');
+
+  const onSave = async () => {
+    const payload = {};
+    for (const f of fields) {
+      const v = (vals[f.key] || '').trim();
+      if (v) payload[f.key] = v;   // allowEmpty 필드도 입력이 있을 때만 전송
+    }
+    if (Object.keys(payload).length === 0) return;
+    setBusy(true);
+    try {
+      const res = await saveConnectorConfig(payload);
+      // 저장 성공 시 시크릿 입력 필드는 비운다 (값이 응답에 에코되지 않으므로).
+      if (res?.ok) {
+        setVals(s => {
+          const next = { ...s };
+          for (const f of fields) if (f.secret) next[f.key] = '';
+          return next;
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <button onClick={() => setV(!v)} className="w-full flex items-center gap-3 py-1.5 text-left">
-      <div className="flex-1">
-        <div className="text-[12.5px] font-medium">{label}</div>
-        <div className="text-[11px] text-zinc-500 mt-0.5">{sub}</div>
-      </div>
-      <span className={`relative inline-block h-5 w-9 rounded-full transition ${v ? 'accent-bg' : 'bg-zinc-300'}`}>
-        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${v ? 'left-[18px]' : 'left-0.5'}`}/>
-      </span>
-    </button>
+    <div className="space-y-3">
+      {fields.map(f => (
+        <Field key={f.key} label={f.label} mono>
+          <input
+            type={f.secret ? 'password' : 'text'}
+            value={vals[f.key]}
+            onChange={e => setField(f.key, e.target.value)}
+            placeholder={f.placeholder || ''}
+            autoComplete="off"
+            className="ssu-input mono"
+          />
+        </Field>
+      ))}
+      <button
+        onClick={onSave}
+        disabled={busy || !hasInput}
+        className="h-9 px-4 rounded-lg accent-bg text-white text-[12.5px] flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <Icn.Check size={13} className={busy ? 'animate-spin' : ''}/>
+        {busy ? '저장 중…' : '저장'}
+      </button>
+    </div>
   );
-};
+}
+
+// 백엔드 status meta 를 읽기 전용으로 표시
+const ReadOnlyMeta = ({ meta }) => (
+  <div className="rounded-lg bg-zinc-50 border border-[var(--line)] p-3 text-[12px] text-zinc-700">
+    {meta || '상태 미확인'}
+  </div>
+);
+
+const EnvNote = ({ children }) => (
+  <div className="rounded-lg bg-zinc-50 border border-[var(--line)] p-3 text-[11.5px] text-zinc-500 leading-relaxed [&_code]:mono [&_code]:text-zinc-700">
+    {children}
+  </div>
+);
+
+// 예약 동기화 카드의 읽기 전용 행
+const ScheduleRow = ({ label, sub, badge, tone, dim }) => (
+  <div className={`flex items-center gap-3 py-1.5 ${dim ? 'opacity-60' : ''}`}>
+    <div className="flex-1">
+      <div className="text-[12.5px] font-medium">{label}</div>
+      <div className="text-[11px] text-zinc-500 mt-0.5">{sub}</div>
+    </div>
+    {badge && (
+      <span className={`text-[10.5px] mono px-1.5 py-0.5 rounded-md
+        ${tone === 'ok' ? 'bg-emerald-50 text-[var(--ok)]' : 'bg-zinc-100 text-zinc-500'}`}>
+        {badge}
+      </span>
+    )}
+  </div>
+);
 
 export { ConnectorsView };

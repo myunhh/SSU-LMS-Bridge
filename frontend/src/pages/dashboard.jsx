@@ -1,5 +1,6 @@
 /* Dashboard view */
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../data/DataStore';
 import Icon from './icons';
 
@@ -32,6 +33,52 @@ const _relTime = (iso, now) => {
   return `${Math.floor(ms / 86_400_000)}일 전`;
 };
 
+/* ---------- LMS 미연결 / 로딩 게이트 (#4) ----------
+ * 로그인은 됐지만 LMS 미연결(세션 없음/만료)이면 가짜 seed 대신 안내 빈 상태를,
+ * 세션 확인·첫 fetch 중이면 스켈레톤을 보여 준다. mock 모드(USE_MOCK)에서는
+ * lmsConnected 가 항상 true 라 이 게이트를 통과한다. */
+function GateSkeleton() {
+  return (
+    <div className="px-7 py-6 space-y-6 max-w-[1280px]" aria-busy="true" aria-label="불러오는 중">
+      <div className="ssu-card p-6 h-[148px] animate-pulse bg-zinc-100/60" />
+      <div className="grid grid-cols-12 gap-5">
+        <div className="col-span-12 lg:col-span-8 ssu-card h-[320px] animate-pulse bg-zinc-100/60" />
+        <div className="col-span-12 lg:col-span-4 ssu-card h-[320px] animate-pulse bg-zinc-100/60" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="ssu-card h-[176px] animate-pulse bg-zinc-100/60" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LmsEmptyState() {
+  const navigate = useNavigate();
+  return (
+    <div className="px-7 py-6 max-w-[1280px]">
+      <div className="ssu-card p-10 flex flex-col items-center text-center gap-4">
+        <span className="h-12 w-12 rounded-xl flex items-center justify-center bg-[var(--accent-soft)] text-[var(--accent)]">
+          <Icon.Book size={22} />
+        </span>
+        <div>
+          <div className="text-[16px] font-semibold tracking-tight">아직 LMS에 연결되지 않았어요</div>
+          <p className="text-[13px] text-zinc-500 mt-1.5 leading-relaxed">
+            강의·과제·공지를 불러오려면 먼저 Connectors에서 숭실대 스마트캠퍼스 LMS에 로그인하세요.
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/connectors')}
+          className="h-9 px-4 rounded-lg accent-bg text-white text-[13px] font-medium flex items-center gap-2 hover:opacity-90"
+        >
+          <Icon.Book size={15} /> Connectors에서 로그인
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Dashboard ---------- */
 function Dashboard({ openCourse, openChat, openCalendar }) {
   const {
@@ -39,8 +86,18 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
     user: USER, semester: SEMESTER, now: NOW,
     getCourseById, markNoticeRead, markAllNoticesRead, toggleAssignmentSubmit,
     triggerSync, syncing, lastSyncAt,
+    lmsConnected, lmsSession, firstFetchDone, loading,
   } = useData();
   const courseById = getCourseById;
+
+  // 게이트(#4):
+  //   ① 세션 상태 아직 모름(lmsSession === null, 첫 조회 전) → 스켈레톤(빈 상태 깜빡임 방지)
+  //   ② LMS 미연결(세션 없음/만료) 확정 → 안내 빈 상태
+  //   ③ 연결됐지만 첫 fetch 전/로딩 중 → 스켈레톤
+  // mock 모드(USE_MOCK)에서는 lmsConnected 가 항상 true 라 ①②를 건너뛴다.
+  if (!lmsConnected && lmsSession == null) return <GateSkeleton />;
+  if (!lmsConnected) return <LmsEmptyState />;
+  if (!firstFetchDone || loading) return <GateSkeleton />;
   const daysUntil = (iso) => daysUntilFor(iso, NOW);
   const upcoming = ASSIGNMENTS
     .filter(a => !a.submitted)
@@ -126,9 +183,10 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
               return (
                 <div key={a.id}
                      className="grid grid-cols-[80px_1fr_auto_auto] items-center gap-4 px-5 py-3 border-b border-[var(--line-2)] last:border-0 group hover:bg-[var(--line-2)]/40">
+                  {/* 강의 목록 부분 로드 실패 시 c가 undefined일 수 있음 — DataStore.notifications와 동일 방어 */}
                   <div className="text-[11px] mono text-zinc-500 flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-sm" style={{ background: c.color }}/>
-                    {c.code}
+                    <span className="h-1.5 w-1.5 rounded-sm" style={{ background: c?.color || 'var(--muted)' }}/>
+                    {c?.code ?? ''}
                   </div>
                   <div className="min-w-0">
                     <div className="text-[13.5px] text-zinc-900 truncate flex items-center gap-2">
@@ -136,7 +194,8 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
                       {a.title}
                     </div>
                     <div className="text-[11.5px] text-zinc-500 mt-0.5">
-                      {c.name} · 비중 {a.weight}%
+                      {/* weight = points_possible(배점) — '배점 N점' 표기 통일 (api/index.js 참고) */}
+                      {c?.name ?? ''} · 배점 {a.weight}점
                     </div>
                   </div>
                   <div className={`text-[12px] mono ${tone} text-right`}>
@@ -155,7 +214,7 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
             })}
           </div>
           <footer className="px-5 py-2.5 text-[12px] text-zinc-500 flex items-center justify-between border-t border-[var(--line-2)]">
-            <span>{submitted}/{totalAssign} 제출 완료 · 평균 제출 시점 마감 -1.4일</span>
+            <span>{submitted}/{totalAssign} 제출 완료</span>
             <button onClick={openCalendar} className="text-zinc-700 hover:underline flex items-center gap-1">캘린더에서 보기 <Icon.Chev size={13}/></button>
           </footer>
         </section>
@@ -170,7 +229,8 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
               </div>
               <button
                 onClick={markAllNoticesRead}
-                className="text-[12px] text-zinc-500 hover:text-zinc-900"
+                disabled={noticesUnread === 0}
+                className="text-[12px] text-zinc-500 hover:text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-500"
               >모두 읽음</button>
             </header>
             <div className="border-t border-[var(--line)]">
@@ -193,7 +253,8 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
                         {n.title}
                       </div>
                       <div className="text-[11px] text-zinc-500 mt-0.5 mono">
-                        {c.code} · {fmtDateKR(n.date)}
+                        {/* 강의 목록 부분 로드 실패 시 c가 undefined일 수 있음 — DataStore.notifications와 동일 방어 */}
+                        {c?.code ?? ''} · {fmtDateKR(n.date)}
                       </div>
                     </div>
                   </button>
@@ -212,22 +273,38 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
                   </div>
                 )}
               </div>
-              <span className="text-[11px] mono text-[var(--ok)] flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-[var(--ok)]"/> 정상
-              </span>
+              {/* 활동/동기화 기록이 있을 때만 '정상' — 근거 없는 상시 초록 배지 제거 */}
+              {(lastSyncAt || ACTIVITY.length > 0) ? (
+                <span className="text-[11px] mono text-[var(--ok)] flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--ok)]"/> 정상
+                </span>
+              ) : (
+                <span className="text-[11px] mono text-zinc-400 flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-300"/> 대기
+                </span>
+              )}
             </header>
             <div className="px-5 pb-4 pt-1">
-              <ul className="relative">
-                <span className="absolute left-[5px] top-1.5 bottom-1.5 w-px bg-[var(--line)]"/>
-                {ACTIVITY.map((a, i) => (
-                  <li key={i} className="pl-5 relative py-1.5">
-                    <span className="absolute left-0 top-2.5 h-2.5 w-2.5 rounded-full bg-white border-2"
-                      style={{ borderColor: a.kind === 'sync' ? 'var(--accent)' : a.kind === 'auth' ? 'var(--warn)' : a.kind === 'submit' ? 'var(--ok)' : 'var(--muted)' }}/>
-                    <div className="text-[12.5px] text-zinc-800">{a.text}</div>
-                    <div className="text-[10.5px] mono text-zinc-500">{a.t} · {a.meta}</div>
-                  </li>
-                ))}
-              </ul>
+              {ACTIVITY.length === 0 ? (
+                <div className="text-[12px] text-zinc-500 py-3">
+                  아직 활동 기록이 없습니다. 동기화하거나 LMS에 로그인하면 여기에 쌓입니다.
+                </div>
+              ) : (
+                <ul className="relative">
+                  <span className="absolute left-[5px] top-1.5 bottom-1.5 w-px bg-[var(--line)]"/>
+                  {ACTIVITY.map((a, i) => (
+                    <li key={i} className="pl-5 relative py-1.5">
+                      <span className="absolute left-0 top-2.5 h-2.5 w-2.5 rounded-full bg-white border-2"
+                        style={{ borderColor: a.kind === 'sync' ? 'var(--accent)' : a.kind === 'auth' ? 'var(--warn)' : a.kind === 'submit' ? 'var(--ok)' : 'var(--muted)' }}/>
+                      <div className="text-[12.5px] text-zinc-800">{a.text}</div>
+                      {/* 상대시각은 저장된 at(ISO)으로 렌더 시점(NOW)에 계산 — 새로고침해도 정확 */}
+                      <div className="text-[10.5px] mono text-zinc-500">
+                        {[_relTime(a.at, NOW), a.meta].filter(Boolean).join(' · ')}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </section>
@@ -238,7 +315,10 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
         <header className="flex items-center justify-between mb-3">
           <div>
             <div className="text-[14.5px] font-semibold">강의 그리드</div>
-            <div className="text-[11.5px] text-zinc-500">{COURSES.length}개 강의 · 캔버스 동기화 완료</div>
+            <div className="text-[11.5px] text-zinc-500">
+              {COURSES.length}개 강의
+              {lastSyncAt && ` · ${_relTime(lastSyncAt.toISOString(), NOW)} 동기화`}
+            </div>
           </div>
         </header>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

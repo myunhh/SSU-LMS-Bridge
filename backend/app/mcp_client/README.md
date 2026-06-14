@@ -14,7 +14,9 @@ LMS 데이터(공지·과제는 Notion DB, 강의자료는 Obsidian Vault)에 **
 | 파일 | 역할 |
 |------|------|
 | `mcp_client/sse_app.py` | `mcp.server.Server` 인스턴스를 SSE transport로 감싸 FastAPI에 mount 가능한 Starlette sub-app으로 변환 |
-| `mcp_client/setup.py` | Notion / Obsidian MCP 서버를 한 번에 마운트하는 헬퍼 (`setup_mcp(app, settings)`) |
+| `mcp_client/lms_server.py` | LMS adapter를 in-process MCP 서버로 노출 (`lms__*` 실시간 직접 조회, 읽기 전용). 토큰 없어 무조건 마운트, 세션 라이프사이클은 도구 호출 단위로 관리 |
+| `mcp_client/study_server.py` | 학습 도우미(`study__*`) — 공지/과제 본문으로 만든 퀴즈·플래시카드를 로컬 JSON에 저장/조회/복습. **토큰 없는 항상-마운트 MCP의 2번째 사례** (LMS와 동일 규약). 외부 의존 0, SRS(SM-2 경량)로 복습 간격 관리 |
+| `mcp_client/setup.py` | LMS / Study / Notion / Obsidian MCP 서버를 한 번에 마운트하는 헬퍼 (`setup_mcp(app, settings)`) |
 | `mcp_client/registry.py` | 여러 MCP 클라이언트를 prefix(`notion__` / `obsidian__`) 기반으로 묶어 LLM의 단일 tool 목록으로 노출하고, 호출을 dispatch |
 
 ### 수정 — 내 영역 (5개, 빈 파일 → 채움)
@@ -70,7 +72,39 @@ LMS 데이터(공지·과제는 Notion DB, 강의자료는 Obsidian Vault)에 **
 
 ---
 
-## 3. LLM이 호출 가능한 도구 (총 9개)
+## 3. LLM이 호출 가능한 도구
+
+### LMS MCP (`lms__*`) — 실시간 직접 조회 (읽기 전용)
+
+`mcp_client/lms_server.py`. LMS adapter(courses/assignments/notices/materials)를 그대로 노출해 LLM이 강의·과제·공지·자료를 **실시간** 조회한다. Notion(하루 1회 동기화 스냅샷)보다 최신이라 마감/신규 공지는 이쪽이 더 정확. 토큰이 없어 **무조건 마운트**(`/mcp/lms`)되고, 세션 파일이 없으면 도구가 한국어 안내(`NO_SESSION_MSG`)를 반환한다(예외로 안 죽음). 세션 만료(401)는 가드하지 않고 전파 → `base.py`가 `RuntimeError`로 변환 → LLM이 재로그인 안내.
+
+| Tool | 방향 | 인자 |
+|------|------|------|
+| `list_courses` | read | — |
+| `list_assignments` | read | `course_id` (required) |
+| `list_deadlines` | read | — (전 과목 마감, 오름차순) |
+| `list_notices` | read | `course_id` (optional, 생략 시 전 과목 통합) |
+| `list_materials` | read | `course_id` (required) |
+| `list_discussions` | read | `course_id` (required) |
+
+### Study MCP (`study__*`) — 학습 도우미 (퀴즈 · 플래시카드 · SRS)
+
+`mcp_client/study_server.py`. 공지/과제 본문으로 만든 **퀴즈·플래시카드를 저장/조회/복습**한다. LMS와 같은 **토큰 없는 항상-마운트** MCP(`/mcp/study`)의 2번째 사례 — `setup.py` 무조건 마운트 ↔ `deps.py:_build_registry` 무조건 등록이 짝이라야 미마운트 URL에 클라이언트가 붙는 불일치를 막는다. 외부 의존 0이고 저장소는 로컬 JSON 2종(`.cache/study/quizzes.json`·`decks.json`, 경로는 `_store_dir()` 파생)뿐이라 세션/`_client_cm`이 없다.
+
+> **역할 분담:** 퀴즈 문항·카드의 *생성*은 채팅 LLM 몫이다. LLM이 `lms__list_notices`/`list_assignments`로 본문을 읽어 문항을 만든 뒤 `study__save_quiz`/`save_deck`로 **저장만** 한다 — MCP 안에서 LLM을 재호출하지 않으며 `litellm` import도 두지 않는다.
+
+| Tool | 방향 | 인자 |
+|------|------|------|
+| `save_quiz` | write | `title`, `questions[]`, `id?`, `source?` (upsert — id 있으면 덮어쓰기) |
+| `list_quizzes` | read | `course?`, `limit?` (본문 제외 메타 목록) |
+| `get_quiz` | read | `id` (문항·정답·해설 전체) |
+| `delete_quiz` | write | `id` (멱등 — 없어도 ok:false) |
+| `save_deck` | write | `title`, `cards[]`, `id?`, `source?`, `now?` (id 갱신 시 동일 front+back 카드 SRS 보존) |
+| `list_decks` | read | `course?`, `now?` (덱별 due_count 포함) |
+| `review_due` | read | `deck_id?`, `now?`, `limit?` (due<=now 카드만, due asc·card_id 정렬) |
+| `grade_card` | write | `deck_id`, `card_id`, `correct`, `now?` (SRS 재계산·저장) |
+
+**SRS(SM-2 경량):** ease(기본 2.5, 하한 1.3), interval(일), reps. 정답 시 `reps==1→interval=1`, `==2→3`, 이후 `round(interval*ease)`이며 `ease += 0.1`. 오답 시 `reps=0`·`interval=1`·`ease=max(1.3, ease-0.2)`. 신규 카드는 `due=now`라 즉시 복습 대상. 모든 시각 계산은 순수 함수 `_apply_review(card, correct, now)`에 모여 있고 `now`를 인자로 받아 **결정적**(테스트가 정확한 due/interval/ease 단언) — `save_deck`/`list_decks`/`review_due`/`grade_card`에 `now`를 주입할 수 있다.
 
 ### Notion MCP (`notion__*`)
 
@@ -176,15 +210,19 @@ curl -X POST http://localhost:8000/api/chat \
 
 ### B. Notion DB 이름 규약
 
-`notion_server.py`의 read tool은 DB property 이름이 **"제목/과목/날짜/마감일/유형/비중(%)/제출완료/중요/읽음"** (한글, 띄어쓰기/괄호 포함)으로 만들어진 것을 가정한다. 이는 `services/notion_services.py`의 `NOTICE_DB_PROPS` / `ASSIGNMENT_DB_PROPS`와 일치해야 한다. **이 이름을 바꾸려면 양쪽을 모두 수정해야 함.**
+`notion_server.py`의 read tool은 DB property 이름이 **"제목/과목/날짜/마감일/유형/배점/제출완료/중요/읽음"** (한글, 띄어쓰기 포함)으로 만들어진 것을 가정한다. 이는 `services/notion_services.py`의 `NOTICE_DB_PROPS` / `ASSIGNMENT_DB_PROPS`와 일치해야 한다. **이 이름을 바꾸려면 양쪽을 모두 수정해야 함.**
+
+> **'배점' property (#8):** 과거엔 `비중(%)`(percent 포맷)에 `points_possible / 100`을 저장해 배점 100점이 100%로 왜곡됐다. 지금은 `배점`(일반 number)에 `points_possible`을 **그대로** 저장한다 (`upsert_assignment`의 `/100` 제거). 라벨을 `비중(%)`→`배점`으로, 포맷을 percent→number로 바꾸면서 `notion_services.py:ASSIGNMENT_DB_PROPS`·`notion_server.py`(upsert/query)·`routes/sync.py` payload·`CLAUDE.md`의 property 목록을 모두 맞췄다.
+
+> **'유형' 라벨 (#12):** Notion '유형' select 에는 원시 Canvas 코드(`online_upload` 등)가 아니라 앱 화면과 통일된 한글 라벨이 들어간다. 백엔드 단일 소스 `models.py:SUBMISSION_TYPE_LABELS`(`online_upload→과제(보고서)`/`online_text_entry→에세이`/`online_quiz→퀴즈`/`discussion_topic→토론`, 폴백 `기타`)를 `routes/sync.py`가 payload 조립 시 매핑한다 — 프론트 `api/index.js`의 `SUBMISSION_TYPE_MAP`(report/essay/quiz 표시 키)과 의미가 어긋나지 않게 유지.
 
 ### C. 동기화(`services/notion_services.py`, `vault_service.py`)는 누가 호출?
 
-이번 PR에서는 동기화 트리거(`routes/sync.py`, APScheduler)를 만들지 않았다. 동기화 담당자가:
-- `routes/sync.py`에 `POST /api/sync` 엔드포인트를 만들고
-- 내부에서 `sync_notion(notices, assignments, settings.notion_mcp_url, settings.notion_token)` 와 `sync_vault(materials, lms_client, settings.obsidian_mcp_url, settings.obsidian_mcp_auth_code, progress_cb)` 호출
+`routes/sync.py:perform_sync()`(수동 `POST /api/sync` + APScheduler 예약 공용)가 호출한다:
+- `sync_notion(notices, assignments, settings.notion_mcp_url, settings.notion_token)` — Notion 설정 시
+- `sync_obsidian(notices, assignments, settings.obsidian_mcp_url, settings.obsidian_mcp_auth_code)` — Obsidian 설정 시 (`is_configured(obsidian_mcp_auth_code)` 가드, setup.py 마운트 조건과 동일)
 
-`Settings`에 이미 `notion_mcp_url` / `obsidian_mcp_url`이 파생 프로퍼티로 노출되어 있으니 그대로 쓰면 된다.
+`sync_obsidian` 은 공지/과제를 `공지/{과목}/{제목}.md`·`과제/{과목}/{제목}.md` markdown 노트로 push 한다 (강의자료 파일은 LTI 뷰어 뒤라 범위 밖). manifest(sha256)로 변경 없는 노트는 건너뛴다. `Settings`에 `notion_mcp_url` / `obsidian_mcp_url`이 파생 프로퍼티로 노출되어 있다.
 
 ### D. `vault_service.py:7` `MANIFEST_PATH`
 
@@ -207,10 +245,9 @@ FastAPI에서 deprecated이지만 동작은 한다. 다른 팀원이 라우터�
 |---|------|---------|
 | 1 | `ChatService.stream`이 매번 `registry.list_tools_openai()`로 두 MCP에 SSE 연결을 새로 열어 tools 조회 → 부하 증가. tools 캐싱 권장 | 중 |
 | 2 | `ensure_db` 결과(DB ID)를 매 turn마다 LLM이 호출 — Settings/Redis 등에 캐시하면 호출 절약 | 중 |
-| 3 | `obsidian_server.py` `read_resource`는 `resp.text` 사용 → binary 파일은 깨짐 (텍스트 노트만 가정) | 낮 |
-| 4 | 단위 테스트 부재 — `tests/test_mcp_*.py` 필요 (특히 tool-use 루프 mock 테스트) | 중 |
-| 5 | `OBSIDIAN_VAULT_PATH` 가이드 (.env.example 수정) | 낮 |
-| 6 | `main.py`를 lifespan 핸들러로 마이그레이션 | 낮 |
+| 3 | 단위 테스트 부재 — `tests/test_mcp_*.py` 필요 (특히 tool-use 루프 mock 테스트) | 중 |
+| 4 | `OBSIDIAN_VAULT_PATH` 가이드 (.env.example 수정) | 낮 |
+| 5 | `main.py`를 lifespan 핸들러로 마이그레이션 | 낮 |
 
 ---
 

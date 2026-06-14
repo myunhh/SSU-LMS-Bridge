@@ -7,8 +7,9 @@ ChatService 가 yield 하는 이벤트 순서와 messages 누적 로직을 검�
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from app.services.llm import ChatService
+import litellm
 
+from app.services.llm import ChatService
 
 # ── 헬퍼 ──────────────────────────────────────────────────────
 
@@ -44,6 +45,13 @@ def _tc(index, id_, name=None, args=None):
 async def _async_iter(chunks):
     for c in chunks:
         yield c
+
+
+async def _broken_iter(chunks, exc):
+    """chunk 들을 흘려보낸 뒤 mid-stream 예외를 raise 하는 async iterator."""
+    for c in chunks:
+        yield c
+    raise exc
 
 
 # ── 모델명 prefix 결정 로직 ───────────────────────────────────
@@ -188,3 +196,38 @@ async def test_stream_acompletion_exception_yields_error_event():
         events = [e async for e in svc.stream([{"role": "user", "content": "?"}])]
 
     assert events == [{"type": "error", "message": "connect refused"}]
+
+
+# ── 스트림 소비 중(mid-stream) 예외 — error 이벤트 계약 유지 ──
+
+async def test_stream_midstream_exception_yields_error_event():
+    """chunk 일부 수신 후 끊겨도 예외가 소비자로 전파되지 않고 error 이벤트로 끝나야 한다."""
+    broken = _broken_iter([_chunk(content="부분")], RuntimeError("connection reset"))
+    with patch(
+        "app.services.llm.litellm.acompletion",
+        AsyncMock(return_value=broken),
+    ):
+        svc = ChatService(_settings(), _registry())
+        events = [e async for e in svc.stream([{"role": "user", "content": "?"}])]
+
+    # 이미 흘러나온 텍스트 델타는 유지되고, 마지막 이벤트는 error
+    assert events[0] == {"type": "text", "delta": "부분"}
+    assert events[-1] == {"type": "error", "message": "connection reset"}
+
+
+async def test_stream_midstream_auth_error_yields_korean_guide():
+    """mid-stream 인증 실패도 acompletion 호출 실패와 동일한 한국어 안내를 yield 후 종료."""
+    auth_exc = litellm.AuthenticationError(
+        message="bad key", llm_provider="anthropic", model="claude-haiku-4-5",
+    )
+    broken = _broken_iter([_chunk(content="부분")], auth_exc)
+    with patch(
+        "app.services.llm.litellm.acompletion",
+        AsyncMock(return_value=broken),
+    ):
+        svc = ChatService(_settings(), _registry())
+        events = [e async for e in svc.stream([{"role": "user", "content": "?"}])]
+
+    assert events[0] == {"type": "text", "delta": "부분"}
+    assert events[-1]["type"] == "error"
+    assert "LLM_API_KEY" in events[-1]["message"]

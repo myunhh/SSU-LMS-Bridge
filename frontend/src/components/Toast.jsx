@@ -64,8 +64,16 @@ function ToastItem({ kind, text, onDismiss }) {
     info:    { dot: 'var(--accent)', bg: 'white' },
   }[kind] || { dot: 'var(--accent)', bg: 'white' };
 
+  // 스크린리더 알림 — 에러는 즉시 끼어드는 assertive+alert, 그 외는 polite+status.
+  // 토스트마다 kind 가 달라 컨테이너가 아니라 항목별로 live 영역을 둔다.
+  const isError = kind === 'error';
+  const liveProps = isError
+    ? { role: 'alert', 'aria-live': 'assertive' }
+    : { role: 'status', 'aria-live': 'polite' };
+
   return (
     <div
+      {...liveProps}
       className={`pointer-events-auto ssu-card px-4 py-3 min-w-[260px] max-w-[420px] flex items-center gap-3 shadow-md transition-all duration-200
         ${show ? 'translate-x-0 opacity-100' : 'translate-x-4 opacity-0'}`}
       style={{ background: palette.bg }}

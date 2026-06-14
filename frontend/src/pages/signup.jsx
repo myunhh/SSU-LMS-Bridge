@@ -5,6 +5,7 @@ import { useAuth } from '../App';
 import { useData } from '../data/DataStore';
 import { SIGNUP_STEPS as STEPS, SIGNUP_INITIAL as INITIAL } from '../data/uiConfig';
 import { STUDENT_ID_REGEX } from '../auth/AccountStore';
+import { saveConnectorConfig } from '../api';
 
 // 비밀번호: 8자 이상, 영문/숫자 1개 이상씩 포함
 const PASSWORD_RULE = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
@@ -79,9 +80,8 @@ export default function SignupPage() {
       if (!form.lmsId.trim()) e.lmsId = 'LMS 아이디를 입력해주세요.';
       if (!form.lmsPassword)  e.lmsPassword = 'LMS 비밀번호를 입력해주세요.';
     }
-    if (s === 5) {
-      if (!form.claudeApiKey.trim()) e.claudeApiKey = 'API 키를 입력해주세요.';
-    }
+    // Step 3~5(Notion/Obsidian/Gemini)는 선택 단계 — 입력값을 저장하지 않으므로
+    // 필수 검증도 하지 않는다. (실연동은 백엔드 .env 설정)
     return e;
   };
 
@@ -107,8 +107,41 @@ export default function SignupPage() {
     // 마지막 단계가 아니면 다음으로
     if (step < 5) { setStep(s => s + 1); return; }
 
-    // 마지막 단계 — 실제 가입 처리
+    // 마지막 단계 — 커넥터 키를 백엔드 .env 로 저장(선택) 후 실제 가입 처리
     setSubmitting(true);
+
+    // 입력된(비어있지 않은) 키만 모아 백엔드 .env 에 저장.
+    // ⚠️ 백엔드 키 이름은 connectors.py 의 ConnectorConfigIn / _ENV_KEY_MAP 화이트리스트와
+    //    정확히 일치해야 한다. obsidian_vault_path / obsidian_base_url / llm_model 세 키는
+    //    백엔드 화이트리스트 확장(#10)이 반영돼야 수용된다 — 미반영 백엔드는 422 로 거부하므로
+    //    saveConnectorConfig 가 알려진 키만으로 1회 재시도한다(아래 api/index.js 참조).
+    const payload = {};
+    const trimAdd = (k, v) => { const t = (v || '').trim(); if (t) payload[k] = t; };
+    trimAdd('notion_token', form.notionToken);
+    trimAdd('notion_root_page_id', form.notionPageId);
+    trimAdd('obsidian_mcp_auth_code', form.obsidianAuthCode);
+    // Obsidian Vault 명/Endpoint 는 auth_code 를 실제로 입력했을 때만 함께 전송한다.
+    // (vault/endpoint 는 기본값이 항상 채워져 있어, 무조건 보내면 Obsidian 미사용 시에도
+    //  .env 의 OBSIDIAN_BASE_URL 을 덮어쓰게 된다.)
+    // 백엔드 키 매핑: obsidian_vault_path(vault 상대경로) / obsidian_base_url(Local REST API 베이스).
+    if (form.obsidianAuthCode && form.obsidianAuthCode.trim()) {
+      trimAdd('obsidian_vault_path', form.obsidianVault);
+      trimAdd('obsidian_base_url', form.obsidianEndpoint);
+    }
+    trimAdd('llm_api_key', form.claudeApiKey);
+    // Gemini 기본 모델 — 백엔드 llm_model 로 매핑 (litellm 이 "gemini/<model>" prefix).
+    // 모델은 API 키와 무관히 선택값이 항상 있으므로 키 입력 여부와 관계없이 전송한다.
+    trimAdd('llm_model', form.claudeModel);
+    if (Object.keys(payload).length) {
+      const r = await saveConnectorConfig(payload);
+      if (!r.ok) {
+        setSubmitting(false);
+        // 키는 선택 입력 — 비우면 건너뛰고 가입을 계속할 수 있다.
+        setErrors({ submit: '커넥터 키 저장 실패: ' + r.error + ' — 입력을 비우면 건너뛸 수 있습니다.' });
+        return;
+      }
+    }
+
     const res = await signup({
       ...form,
       name:      form.name.trim(),
@@ -126,7 +159,13 @@ export default function SignupPage() {
     navigate('/dashboard', { replace: true });
   };
 
-  const skip = () => { setErrors({}); setStep(s => s + 1); };
+  // 선택 단계 건너뛰기 — 마지막 단계라면 곧바로 가입 완료 처리
+  const skip = () => {
+    if (submitting) return;
+    setErrors({});
+    if (step >= STEPS.length) { next(); return; }
+    setStep(s => s + 1);
+  };
   const back = () => { setErrors({}); setStep(s => s - 1); };
 
   const cur = STEPS[step - 1];
@@ -235,13 +274,31 @@ export default function SignupPage() {
               <Field label="LMS 비밀번호" error={errors.lmsPassword}>
                 <input type="password" className="ssu-input" value={form.lmsPassword} onChange={e => set('lmsPassword', e.target.value)} placeholder="스마트캠퍼스 비밀번호"/>
               </Field>
+              {/* 자동 재로그인 — opt-in (#7). 켜면 LMS 비밀번호가 이 브라우저(localStorage)에
+                  보관되어 세션 만료 시 자동 재로그인된다. 끄면 비밀번호를 저장하지 않고,
+                  만료 때 설정 페이지에서 직접 재입력한다. */}
+              <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
+                  checked={!!form.autoRelogin}
+                  onChange={e => set('autoRelogin', e.target.checked)}
+                />
+                <span className="text-[12px] leading-relaxed text-zinc-600">
+                  <span className="font-medium text-zinc-700">자동 재로그인</span> — 세션이 만료되면 자동으로 다시 로그인합니다.
+                  <span className="block text-[11px] text-zinc-400 mt-0.5">
+                    켜면 LMS 비밀번호가 이 브라우저에 저장됩니다. 끄면 만료 시 설정에서 직접 재입력합니다. (기본 꺼짐)
+                  </span>
+                </span>
+              </label>
             </>}
 
             {/* ── Step 3: Notion ── */}
             {step === 3 && <>
               <InfoBox>
                 Notion → 설정 → 연동 → 내부 통합에서 토큰을 발급받아 입력해주세요.
-                연동을 건너뛰어도 나중에 커넥터 설정에서 추가할 수 있습니다.
+                입력한 키는 백엔드 .env 에 저장되며, 서버 재시작 후 연동이 활성화됩니다.
+                건너뛰어도 나중에 .env 에 직접 설정할 수 있습니다.
               </InfoBox>
               <Field label="Internal Integration Token" error={errors.notionToken}>
                 <input className="ssu-input mono" value={form.notionToken} onChange={e => set('notionToken', e.target.value)} placeholder="secret_…" autoFocus/>
@@ -255,7 +312,8 @@ export default function SignupPage() {
             {step === 4 && <>
               <InfoBox>
                 Obsidian → Local REST API 플러그인을 설치한 후 Auth Code를 발급해주세요.
-                연동을 건너뛰어도 나중에 커넥터 설정에서 추가할 수 있습니다.
+                입력한 키는 백엔드 .env 에 저장되며, 서버 재시작 후 연동이 활성화됩니다.
+                건너뛰어도 나중에 .env 에 직접 설정할 수 있습니다.
               </InfoBox>
               <Field label="Auth Code" error={errors.obsidianAuthCode}>
                 <input className="ssu-input mono" value={form.obsidianAuthCode} onChange={e => set('obsidianAuthCode', e.target.value)} placeholder="obs_…" autoFocus/>
@@ -268,21 +326,21 @@ export default function SignupPage() {
               </Field>
             </>}
 
-            {/* ── Step 5: Claude API ── */}
+            {/* ── Step 5: Gemini API ── */}
             {step === 5 && <>
               <InfoBox>
-                console.anthropic.com → API Keys에서 키를 발급받아 입력해주세요.
-                키는 암호화되어 저장되며 학습 비서 기능에만 사용됩니다.
+                Google AI Studio(aistudio.google.com) → &apos;Get API key&apos;에서 키를 발급받을 수 있습니다.
+                입력한 키는 백엔드 .env 에 저장됩니다 (브라우저에는 저장되지 않음).
               </InfoBox>
-              <Field label="Anthropic API Key" error={errors.claudeApiKey}>
-                <input type="password" className="ssu-input mono" value={form.claudeApiKey} onChange={e => set('claudeApiKey', e.target.value)} placeholder="sk-ant-…" autoFocus/>
+              <Field label="Gemini API Key" error={errors.claudeApiKey}>
+                <input type="password" className="ssu-input mono" value={form.claudeApiKey} onChange={e => set('claudeApiKey', e.target.value)} placeholder="AIza…" autoFocus/>
               </Field>
               <Field label="기본 모델">
                 <select className="ssu-input" value={form.claudeModel} onChange={e => set('claudeModel', e.target.value)}
                   style={{ appearance: 'none', backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(0,0,0,.45)' d='M0 0h10L5 6z'/></svg>")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}>
-                  <option value="claude-haiku-4-5">claude-haiku-4-5 — 빠름 · 저비용</option>
-                  <option value="claude-sonnet-4-6">claude-sonnet-4-6 — 균형</option>
-                  <option value="claude-opus-4-7">claude-opus-4-7 — 최고 성능</option>
+                  <option value="gemini-2.5-flash">gemini-2.5-flash — 빠름 · 균형 (기본)</option>
+                  <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite — 최저 비용</option>
+                  <option value="gemini-2.5-pro">gemini-2.5-pro — 최고 성능</option>
                 </select>
               </Field>
             </>}

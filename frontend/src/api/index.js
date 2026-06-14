@@ -11,11 +11,12 @@
 // FastAPI 라우트(예정 / 비어있음 — backend/app/api/routes/*.py 는 헤더 주석만):
 //   GET  /api/courses                              → Course[]
 //   GET  /api/courses/{id}/notices                 → Notice[]
+//   GET  /api/courses/{id}/discussions             → Notice[]     (일반 토론, 공지와 분리)
 //   GET  /api/courses/{id}/assignments             → Assignment[]
 //   GET  /api/courses/{id}/modules                 → Material[]   (module items 펼친 형태)
 //   GET  /api/assignments/todos                    → Assignment[] (모든 강의 마감 통합)
 //   POST /api/sync                                 → SyncResult
-//   GET  /api/sync/status                          → { running, lastSyncAt, ... }
+//   GET  /api/sync/status                          → { running, lastSyncAt, syncHour }
 //
 // 백엔드 라우트가 아직 없으므로 USE_MOCK=true 인 동안은 mockData.js 의 seed 를 반환.
 // 라우트가 생기는 즉시 USE_MOCK=false 로 바꾸면 fetch 호출로 전환.
@@ -42,6 +43,9 @@ export const USE_MOCK = false;
 export const USE_MOCK_SYNC = false;
 
 // ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
+// 응답 실패 시 던지는 에러에 HTTP 상태코드를 실어 준다(err.status).
+// DataStore 의 자동 재로그인 판별(_isAuthError)이 throw 된 401/403/419 를
+// 메시지 문자열뿐 아니라 status 로도 잡을 수 있게 하기 위함.
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
@@ -49,7 +53,9 @@ async function request(path, options = {}) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText} — ${text}`);
+    const err = new Error(`${res.status} ${res.statusText} — ${text}`);
+    err.status = res.status;
+    throw err;
   }
   if (res.status === 204) return null;
   return res.json();
@@ -86,10 +92,11 @@ function adaptCourse(b) {
     color: _courseColor(b.id),
     // 백엔드 progress 는 0~100(%) → 프론트는 0~1 비율 사용
     progress: b.progress != null ? b.progress / 100 : 0,
-    // 백엔드 미제공 — 기본값 (추후 modules/assignments 로 계산 가능)
-    weekCurrent: 0,
+    // 주차는 학기 시작일 기반 계산값 사용 ("주차 0/16" 표기 방지),
+    // materials 는 백엔드 Course.materials (강의 모듈 아이템 총 개수)
+    weekCurrent: seed.SEMESTER.weekCurrent,
     weekTotal: 16,
-    materials: 0,
+    materials: b.materials ?? 0,
     unread: 0,
     dueSoon: 0,
     term: b.term || '',
@@ -115,24 +122,39 @@ function adaptNotice(b) {
     // 백엔드 모델 필드는 `message` (HTML). 짧은 미리보기 + 전체 본문 둘 다 노출.
     snippet: _htmlPreview(b.message, 200),
     body:    b.message || '',
-    // 백엔드 is_read 반영 (pinned 는 Canvas 에 해당 개념이 없어 false)
+    // HTML 제거된 전체 본문 평문 (백엔드 message_text) — course-detail 펼침 표시용
+    fullText: b.message_text || '',
+    // 백엔드 is_read / pinned(discussion_topics.pinned) 반영
     unread: !b.is_read,
-    pinned: false,
+    pinned: !!b.pinned,
   };
 }
 
+// Canvas submission_types → 프론트 표시 타입 (dashboard typeIcon 의 키와 맞춤)
+const SUBMISSION_TYPE_MAP = {
+  online_upload:     'report',
+  online_text_entry: 'essay',
+  online_quiz:       'quiz',
+  discussion_topic:  'essay',
+};
+
 function adaptAssignment(b) {
+  const rawType = (b.submission_types && b.submission_types[0]) || '';
   return {
     id:     b.id,
     course: b.course_id,
     title:  b.title,
     due:    b.due_at,
+    // ⚠️ points_possible 은 "배점"(예: 100점)이지 성적 비중(%)이 아니다.
+    //    표시 문구는 '배점 N점' 으로 통일 (dashboard / course-detail).
     weight: b.points_possible || 0,
-    type:   (b.submission_types && b.submission_types[0]) || 'report',
+    type:   SUBMISSION_TYPE_MAP[rawType] || 'report',
     url:    b.html_url || '',
     // 백엔드 모델 필드는 `description` (HTML).
     snippet: _htmlPreview(b.description, 200),
     body:    b.description || '',
+    // HTML 제거된 전체 본문 평문 (백엔드 description_text)
+    fullText: b.description_text || '',
     // 백엔드 submitted 반영 (어댑터가 submissions API 로 채움)
     submitted: !!b.submitted,
   };
@@ -169,12 +191,6 @@ export async function fetchCourses() {
   if (USE_MOCK) { await fakeDelay(); return seed.COURSES; }
   const data = await request('/api/courses');
   return (data || []).map(adaptCourse);
-}
-
-export async function fetchCourseById(id) {
-  if (USE_MOCK) { await fakeDelay(); return seed.COURSES.find(c => c.id === id) || null; }
-  const data = await request(`/api/courses/${id}`);
-  return adaptCourse(data);
 }
 
 // ── 공지 ────────────────────────────────────────────────────────────────────
@@ -217,10 +233,20 @@ export async function fetchModules(courseId) {
   return adaptMaterialsToModules(data || []);
 }
 
+// ── 토론 ────────────────────────────────────────────────────────────────────
+// 공지와 동일한 discussion_topics 엔드포인트지만 only_announcements 없이 일반 토론만.
+export async function fetchDiscussions(courseId) {
+  // mockData 에 토론 seed 가 없으므로 mock 모드에선 빈 목록을 돌려준다.
+  if (USE_MOCK) { await fakeDelay(); return []; }
+  const data = await request(`/api/courses/${courseId}/discussions`);
+  // adaptNotice 가 snippet/fullText(평문)/url/date/unread 를 채운다 (토론도 Notice 형태).
+  return (data || []).map(adaptNotice);
+}
+
 // ── 동기화 ──────────────────────────────────────────────────────────────────
 /**
  * 수동 동기화 트리거.
- * 백엔드는 LMS 스크래퍼 + sync_notion + sync_vault 를 순차 실행한다.
+ * 백엔드는 LMS 수집 후, 설정된 경우에만 Notion push(sync_notion)·Obsidian push(sync_obsidian)를 실행한다.
  * 진행 상황은 별도 WebSocket(/api/sync/progress) 으로 받는 것을 권장 — 현재는 결과만 받음.
  * @returns {Promise<{ success: boolean, syncedAt: string, courses: number,
  *                     notices: number, assignments: number, materials: number,
@@ -253,20 +279,93 @@ export async function triggerSync() {
 }
 
 export async function fetchSyncStatus() {
-  if (USE_MOCK) {
+  // triggerSync 와 같은 플래그 사용 — 둘이 따로 놀면 mock/실연결 혼합 동작이 된다.
+  // 응답 스키마: { running, lastSyncAt, syncHour } (백엔드 routes/sync.py 와 일치 유지)
+  if (USE_MOCK_SYNC) {
     await fakeDelay(100);
-    return { running: false, lastSyncAt: null };
+    return { running: false, lastSyncAt: null, syncHour: 4 };
   }
   return request('/api/sync/status');
 }
 
+// ── 커넥터 상태 ─────────────────────────────────────────────────────────────
+/**
+ * GET /api/connectors/status
+ * → [ { id: "lms"|"notion"|"obsidian"|"llm", status, meta, last }, ... ]
+ * 백엔드가 꺼져 있는 등 실패 시 null 반환 (throw 금지 — 앱은 seed 로 동작해야 함).
+ */
+export async function fetchConnectorsStatus() {
+  if (USE_MOCK) return null;
+  try {
+    const data = await request('/api/connectors/status');
+    return Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * POST /api/connectors/config — 가입 마법사가 입력한 키를 백엔드 .env 에 저장.
+ * payload 예: { notion_token, notion_root_page_id, obsidian_mcp_auth_code,
+ *               obsidian_vault_path, obsidian_base_url, llm_api_key, llm_model }
+ * throw 하지 않고 { ok, restartRequired, detail } 또는 { ok:false, error } 반환.
+ *
+ * ⚠️ 백엔드 connectors.py 의 ConnectorConfigIn 은 extra="forbid" 이므로 화이트리스트에
+ *    없는 키를 보내면 422 로 전체 요청이 거부된다. obsidian_vault_path / obsidian_base_url /
+ *    llm_model 세 키는 백엔드 화이트리스트 확장(#10)이 반영돼야 수용되는데, 아직 미반영인
+ *    백엔드에서도 가입이 완료돼야 하므로 422 가 나면 알려진 키만 추려 1회 재시도한다.
+ */
+// #10 이전 백엔드도 항상 수용하는 키 — 422 재시도 시 이 집합만 남긴다.
+const _LEGACY_CONFIG_KEYS = [
+  'notion_token', 'notion_root_page_id', 'obsidian_mcp_auth_code', 'llm_api_key',
+];
+
+export async function saveConnectorConfig(payload) {
+  if (USE_MOCK) return { ok: true, restartRequired: false };
+  try {
+    const data = await request('/api/connectors/config', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return { ok: true, restartRequired: !!data.restart_required, detail: data.detail };
+  } catch (e) {
+    // 화이트리스트 미반영 백엔드(#10 이전)는 신규 키를 422 로 거부 — 알려진 키만으로 재시도.
+    if (e.status === 422) {
+      const legacy = {};
+      for (const k of _LEGACY_CONFIG_KEYS) {
+        if (payload[k] != null) legacy[k] = payload[k];
+      }
+      if (Object.keys(legacy).length) {
+        try {
+          const data = await request('/api/connectors/config', {
+            method: 'POST',
+            body: JSON.stringify(legacy),
+          });
+          return { ok: true, restartRequired: !!data.restart_required, detail: data.detail };
+        } catch (e2) {
+          return { ok: false, error: String(e2.message || e2) };
+        }
+      }
+      // 저장할 알려진 키가 없다(신규 키만 보냄) — 모두 선택 설정이므로 가입을 막지 않는다.
+      return { ok: true, restartRequired: false, detail: '백엔드가 일부 설정 키를 아직 지원하지 않아 건너뜀.' };
+    }
+    return { ok: false, error: String(e.message || e) };
+  }
+}
+
 // ── 모든 페이지가 처음 띄울 때 한 번에 받을 수 있는 헬퍼 ────────────────────
 // DataStore.jsx 의 useEffect 에서 호출.
+// Promise.allSettled — 셋 중 일부만 실패해도 성공한 데이터는 반영할 수 있게
+// 실패 항목은 null, 사유는 errors 배열로 돌려준다.
 export async function fetchInitialBundle() {
-  const [courses, assignments, notices] = await Promise.all([
+  const [c, a, n] = await Promise.allSettled([
     fetchCourses(),
     fetchAssignments(),
     fetchNotices(),
   ]);
-  return { courses, assignments, notices };
+  const val = (r) => (r.status === 'fulfilled' ? r.value : null);
+  const errors = [c, a, n]
+    .filter(r => r.status === 'rejected')
+    .map(r => String(r.reason?.message || r.reason));
+  return { courses: val(c), assignments: val(a), notices: val(n), errors };
 }

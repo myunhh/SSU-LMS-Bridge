@@ -22,9 +22,11 @@ import { API_BASE } from '../data/uiConfig';
 // 로컬에서 백엔드를 띄우지 않고 UI 만 보고 싶다면 true 로 바꾸면 mock 으로 돌아간다.
 const USE_MOCK = false;
 
-// 백엔드 자동 세션 연장 주기 (auth.py 의 session_keeper_loop 와 동일: 5400초)
+// 백엔드 자동 세션 연장 주기 (백엔드 공용 상수: backend/app/api/session_meta.py 의
+// SESSION_REFRESH_INTERVAL 과 동일: 5400초)
 export const SESSION_REFRESH_INTERVAL = 5400;
-// SSU SSO 쿠키 일반 만료 (관찰값 기준 약 7일)
+// SSU SSO 쿠키 일반 만료 (관찰값 기준 약 7일 — backend/app/api/session_meta.py 의
+// SESSION_MAX_AGE 와 짝. 한쪽을 바꾸면 반드시 같이 바꿀 것)
 export const SESSION_MAX_AGE = 7 * 24 * 3600;
 
 // ── localStorage 키 ───────────────────────────────────────────────────────────
@@ -103,7 +105,7 @@ export async function getLmsSessionStatus() {
       active: true,
       userInfo: meta.userInfo,
       savedAt: meta.savedAt,
-      // 다음 자동 갱신까지 남은 시간 (백엔드 keeper loop 가 SESSION_REFRESH_INTERVAL 주기로 돈다고 가정)
+      // 다음 자동 갱신까지 남은 시간 (백엔드 스케줄러가 SESSION_REFRESH_INTERVAL 주기로 자동 갱신)
       nextRefreshIn: Math.max(0, SESSION_REFRESH_INTERVAL - (age % SESSION_REFRESH_INTERVAL)),
     };
   }

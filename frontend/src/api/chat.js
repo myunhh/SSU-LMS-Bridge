@@ -20,7 +20,12 @@ import { WS_BASE } from '../data/uiConfig';
 export function openChatStream({ messages, onText, onToolCall, onToolResult, onError, onDone }) {
   let ws;
   try {
-    ws = new WebSocket(`${WS_BASE}/api/chat`);
+    // WS_BASE 미설정 시(frontend/.env 없음) 현재 페이지 호스트로 폴백 —
+    // vite dev proxy(ws: true)가 /api/chat 업그레이드를 백엔드로 중계한다.
+    // 구형 브라우저는 상대 URL WebSocket 에서 SyntaxError 를 던지므로 절대 URL 필수.
+    const base = WS_BASE
+      || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
+    ws = new WebSocket(`${base}/api/chat`);
   } catch {
     onError?.('채팅 서버에 연결할 수 없습니다.');
     return () => {};
@@ -34,6 +39,7 @@ export function openChatStream({ messages, onText, onToolCall, onToolResult, onE
   ws.onopen = () => ws.send(JSON.stringify({ messages }));
 
   ws.onmessage = (e) => {
+    if (closed) return; // close() 직후 수신 큐에 남아 있던 이벤트가 콜백을 다시 부르는 것 차단
     let ev;
     try { ev = JSON.parse(e.data); } catch { return; }
     switch (ev.type) {
@@ -47,6 +53,16 @@ export function openChatStream({ messages, onText, onToolCall, onToolResult, onE
   };
 
   ws.onerror = () => { onError?.('채팅 연결 오류 (백엔드 실행을 확인하세요).'); close(); };
+
+  // done/error 이벤트 없이 소켓이 닫힌 경우(uvicorn 재시작, 네트워크 단절 등) —
+  // 콜백이 한 번도 불리지 않으면 호출 측 streaming 상태가 영원히 풀리지 않으므로 여기서 통지한다.
+  // 정상 경로(done/error/onerror)는 모두 close()로 closed=true 가 된 뒤라 중복 호출 없음.
+  ws.onclose = () => {
+    if (!closed) {
+      closed = true;
+      onError?.('연결이 종료되었습니다. 다시 시도해 주세요.');
+    }
+  };
 
   return close;
 }
