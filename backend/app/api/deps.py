@@ -39,6 +39,8 @@ async def get_canvas_client() -> AsyncGenerator[CanvasClient, None]:
 def _build_registry(
     lms_url: str,
     study_url: str,
+    grades_url: str,
+    materials_url: str,
     notion_url: str,
     notion_token: str,
     notion_root: str,
@@ -56,6 +58,11 @@ def _build_registry(
     registry = McpRegistry()
     registry.register("lms", MCPClientBase(server_url=lms_url))
     registry.register("study", MCPClientBase(server_url=study_url))
+    # 성적 MCP — LMS/Study 와 동일하게 토큰 없이 무조건 등록(setup.py 무조건 마운트와 짝).
+    registry.register("grades", MCPClientBase(server_url=grades_url))
+    # 강의자료 RAG MCP — obsidian 설정 시에만 등록(setup.py 마운트 게이트와 동일).
+    if is_configured(obsidian_auth):
+        registry.register("materials", MCPClientBase(server_url=materials_url))
     if is_configured(notion_token, notion_root):
         registry.register(
             "notion",
@@ -79,6 +86,8 @@ def get_mcp_registry(settings: Settings = Depends(get_settings)) -> McpRegistry:
     return _build_registry(
         lms_url=settings.lms_mcp_url,
         study_url=settings.study_mcp_url,
+        grades_url=settings.grades_mcp_url,
+        materials_url=settings.materials_mcp_url,
         notion_url=settings.notion_mcp_url,
         notion_token=settings.notion_token,
         notion_root=settings.notion_root_page_id,

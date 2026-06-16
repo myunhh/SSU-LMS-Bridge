@@ -8,21 +8,25 @@ import Icn from './icons';
 
 // 로딩 전 표시용 시드 (백엔드 /api/mcp/status 응답으로 대체됨)
 const MCP_FALLBACK = [
-  { id: 'lms',      name: 'LMS MCP',      status: 'disconnected', tools: 0, toolList: [], meta: '강의·과제·마감·공지·자료·토론 실시간 조회' },
-  { id: 'study',    name: 'Study MCP',    status: 'disconnected', tools: 0, toolList: [], meta: '퀴즈·플래시카드(SM-2 SRS) 저장/복습' },
-  { id: 'notion',   name: 'Notion MCP',   status: 'disconnected', tools: 0, toolList: [], meta: 'Notion DB 동기화·질의' },
-  { id: 'obsidian', name: 'Obsidian MCP', status: 'disconnected', tools: 0, toolList: [], meta: 'Vault 노트·파일 읽기/쓰기' },
+  { id: 'lms',       name: 'LMS MCP',       status: 'disconnected', tools: 0, toolList: [], meta: '강의·과제·마감·공지·자료·토론 실시간 조회' },
+  { id: 'study',     name: 'Study MCP',     status: 'disconnected', tools: 0, toolList: [], meta: '퀴즈·플래시카드(SM-2 SRS) 저장/복습' },
+  { id: 'grades',    name: 'Grades MCP',    status: 'disconnected', tools: 0, toolList: [], meta: '과목별 성적·평균·GPA 추정 조회' },
+  { id: 'materials', name: 'Materials MCP', status: 'disconnected', tools: 0, toolList: [], meta: '받아둔 강의자료 본문 추출·검색(RAG)' },
+  { id: 'notion',    name: 'Notion MCP',    status: 'disconnected', tools: 0, toolList: [], meta: 'Notion DB 동기화·질의' },
+  { id: 'obsidian',  name: 'Obsidian MCP',  status: 'disconnected', tools: 0, toolList: [], meta: 'Vault 노트·파일 읽기/쓰기' },
 ];
 
-// MCP 별 항상-마운트 여부 (안내 문구용) — lms·study 는 토큰 없이 항상 켜진다.
-const ALWAYS_ON = new Set(['lms', 'study']);
+// MCP 별 항상-마운트 여부 (안내 문구용) — lms·study·grades 는 토큰 없이 항상 켜진다.
+const ALWAYS_ON = new Set(['lms', 'study', 'grades']);
 
 const Logo = ({ id }) => {
   const cls = 'h-9 w-9 rounded-xl flex items-center justify-center shrink-0';
-  if (id === 'lms')      return <div className={`${cls} accent-bg text-white`}><Icn.Book size={18}/></div>;
-  if (id === 'study')    return <div className={`${cls} bg-emerald-600 text-white`}><Icn.Quiz size={18}/></div>;
-  if (id === 'notion')   return <div className={`${cls} bg-zinc-900 text-white`}><Icn.Notion size={18}/></div>;
-  if (id === 'obsidian') return <div className={`${cls} bg-violet-600 text-white`}><Icn.Obsidian size={18}/></div>;
+  if (id === 'lms')       return <div className={`${cls} accent-bg text-white`}><Icn.Book size={18}/></div>;
+  if (id === 'study')     return <div className={`${cls} bg-emerald-600 text-white`}><Icn.Quiz size={18}/></div>;
+  if (id === 'grades')    return <div className={`${cls} bg-amber-500 text-white`}><Icn.Check size={18}/></div>;
+  if (id === 'materials') return <div className={`${cls} bg-sky-600 text-white`}><Icn.File size={18}/></div>;
+  if (id === 'notion')    return <div className={`${cls} bg-zinc-900 text-white`}><Icn.Notion size={18}/></div>;
+  if (id === 'obsidian')  return <div className={`${cls} bg-violet-600 text-white`}><Icn.Obsidian size={18}/></div>;
   return <div className={`${cls} bg-zinc-200`}><Icn.Code size={18}/></div>;
 };
 

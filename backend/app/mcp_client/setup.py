@@ -27,7 +27,9 @@ from fastapi import FastAPI
 from loguru import logger
 
 from app.config import Settings, is_configured
+from app.mcp_client.grades_server import create_grades_mcp_server
 from app.mcp_client.lms_server import create_lms_mcp_server
+from app.mcp_client.materials_server import create_materials_mcp_server
 from app.mcp_client.notion_server import create_notion_mcp_server
 from app.mcp_client.obsidian_server import create_obsidian_mcp_server
 from app.mcp_client.sse_app import build_mcp_sse_app
@@ -54,6 +56,28 @@ def setup_mcp(app: FastAPI, settings: Settings) -> None:
     study_server = create_study_mcp_server()
     app.mount("/mcp/study", build_mcp_sse_app(study_server, "/mcp/study"))
     logger.info(f"[MCP] Study 마운트: {settings.study_mcp_url}")
+
+    # ── Grades (성적/GPA) ──────────────────────────────────
+    # LMS 와 동일 — 토큰 없는 세션 기반 MCP 라 무조건 마운트(deps 등록도 무조건).
+    grades_server = create_grades_mcp_server(session_file=str(settings.session_cache_abspath))
+    app.mount("/mcp/grades", build_mcp_sse_app(grades_server, "/mcp/grades"))
+    logger.info(f"[MCP] Grades 마운트: {settings.grades_mcp_url}")
+
+    # ── Materials (강의자료 RAG) ───────────────────────────
+    # Obsidian 에 받아둔 파일을 읽으므로 obsidian 설정 시에만 마운트(obsidian 과 동일 게이트,
+    # deps 등록 조건도 동일해야 미마운트 URL 에 클라이언트가 붙는 불일치를 막는다).
+    if is_configured(settings.obsidian_mcp_auth_code):
+        materials_server = create_materials_mcp_server(
+            auth_code=settings.obsidian_mcp_auth_code,
+            base_url=settings.obsidian_base_url,
+            vault_path=settings.obsidian_vault_path,
+        )
+        app.mount("/mcp/materials", build_mcp_sse_app(materials_server, "/mcp/materials"))
+        logger.info(f"[MCP] Materials 마운트: {settings.materials_mcp_url}")
+    else:
+        logger.warning(
+            "[MCP] OBSIDIAN_MCP_AUTH_CODE 미설정 → 강의자료 RAG(Materials) MCP 건너뜀"
+        )
 
     # ── Notion ─────────────────────────────────────────────
     if is_configured(settings.notion_token, settings.notion_root_page_id):

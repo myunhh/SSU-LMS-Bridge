@@ -29,6 +29,8 @@ router = APIRouter()
 _MCP_SERVERS = [
     ("lms", "LMS MCP", "강의·과제·마감·공지·자료·토론 실시간 조회"),
     ("study", "Study MCP", "퀴즈·플래시카드(SM-2 SRS) 저장/복습"),
+    ("grades", "Grades MCP", "과목별 성적·평균·GPA 추정 조회"),
+    ("materials", "Materials MCP", "받아둔 강의자료 본문 추출·검색(RAG)"),
     ("notion", "Notion MCP", "Notion DB 동기화·질의"),
     ("obsidian", "Obsidian MCP", "Vault 노트·파일 읽기/쓰기"),
 ]
@@ -38,6 +40,8 @@ def _mcp_url(sid: str) -> str:
     return {
         "lms": settings.lms_mcp_url,
         "study": settings.study_mcp_url,
+        "grades": settings.grades_mcp_url,
+        "materials": settings.materials_mcp_url,
         "notion": settings.notion_mcp_url,
         "obsidian": settings.obsidian_mcp_url,
     }[sid]
@@ -83,8 +87,8 @@ async def _mcp_status() -> list[dict]:
             item["tools"] = len(tool_list)
             item["toolList"] = tool_list
             item["meta"] = f"{desc} · 도구 {len(tool_list)}개"
-        elif sid in ("notion", "obsidian"):
-            # 토큰 미설정이면 마운트 자체가 안 됨(setup.py). 설정했는데도 미마운트면 재시작 필요.
+        elif sid in ("notion", "obsidian", "materials"):
+            # 설정(키)이 없으면 마운트 자체가 안 됨(setup.py). 설정했는데도 미마운트면 재시작 필요.
             item["meta"] = f"{desc} · 미마운트(키 미설정 또는 재시작 필요)"
         else:
             item["meta"] = f"{desc} · 응답 없음"

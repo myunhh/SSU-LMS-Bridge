@@ -126,6 +126,17 @@ class Settings(BaseSettings):
         return f"http://localhost:{self.backend_port}/mcp/study/sse"
 
     @property
+    def grades_mcp_url(self) -> str:
+        # 성적/GPA MCP(grades__*) — lms 와 동일하게 토큰 없이 무조건 마운트(세션 기반).
+        return f"http://localhost:{self.backend_port}/mcp/grades/sse"
+
+    @property
+    def materials_mcp_url(self) -> str:
+        # 강의자료 RAG MCP(materials__*) — Obsidian 에 받아둔 파일을 읽으므로
+        # obsidian 설정 시에만 마운트(obsidian 과 동일 게이트).
+        return f"http://localhost:{self.backend_port}/mcp/materials/sse"
+
+    @property
     def notion_mcp_url(self) -> str:
         return f"http://localhost:{self.backend_port}/mcp/notion/sse"
 

@@ -28,10 +28,13 @@ def _tools(n: int) -> list[dict]:
     return [{"name": f"tool{i}", "description": f"도구 {i} 설명"} for i in range(n)]
 
 
+_EXPECTED_IDS = {"lms", "study", "grades", "materials", "notion", "obsidian"}
+
+
 def _items(resp) -> dict:
     assert resp.status_code == 200
     data = resp.json()
-    assert isinstance(data, list) and len(data) == 4
+    assert isinstance(data, list) and len(data) == len(_EXPECTED_IDS)
     for item in data:
         assert set(item) == {"id", "name", "status", "meta", "tools", "toolList", "url"}
         assert item["status"] in ("connected", "disconnected")
@@ -40,7 +43,7 @@ def _items(resp) -> dict:
         assert item["tools"] == len(item["toolList"])
         assert item["url"].endswith("/sse")
     by_id = {item["id"]: item for item in data}
-    assert set(by_id) == {"lms", "study", "notion", "obsidian"}
+    assert set(by_id) == _EXPECTED_IDS
     return by_id
 
 

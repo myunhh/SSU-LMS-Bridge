@@ -248,13 +248,15 @@ def test_build_registry_registers_lms_without_tokens():
     registry = _build_registry(
         lms_url="http://localhost:8000/mcp/lms/sse",
         study_url="http://localhost:8000/mcp/study/sse",
+        grades_url="http://localhost:8000/mcp/grades/sse",
+        materials_url="http://localhost:8000/mcp/materials/sse",
         notion_url="http://localhost:8000/mcp/notion/sse",
         notion_token="",
         notion_root="",
         obsidian_url="http://localhost:8000/mcp/obsidian/sse",
         obsidian_auth="",
     )
-    assert registry.prefixes == ["lms", "study"]
+    assert registry.prefixes == ["lms", "study", "grades"]   # materials 는 obsidian 미설정이라 skip
 
 
 def test_build_registry_lms_has_empty_headers():
@@ -265,6 +267,8 @@ def test_build_registry_lms_has_empty_headers():
     registry = _build_registry(
         lms_url="http://localhost:8000/mcp/lms/sse",
         study_url="http://localhost:8000/mcp/study/sse",
+        grades_url="http://localhost:8000/mcp/grades/sse",
+        materials_url="http://localhost:8000/mcp/materials/sse",
         notion_url="http://localhost:8000/mcp/notion/sse",
         notion_token="",
         notion_root="",

@@ -458,6 +458,8 @@ def test_build_registry_registers_study_without_tokens():
     registry = _build_registry(
         lms_url="http://localhost:8000/mcp/lms/sse",
         study_url="http://localhost:8000/mcp/study/sse",
+        grades_url="http://localhost:8000/mcp/grades/sse",
+        materials_url="http://localhost:8000/mcp/materials/sse",
         notion_url="http://localhost:8000/mcp/notion/sse",
         notion_token="",
         notion_root="",

@@ -114,6 +114,26 @@ class Material(BaseModel):
 
 
 # ──────────────────────────────────────────
+# 성적 (CourseGrade)
+# ──────────────────────────────────────────
+class CourseGrade(BaseModel):
+    """과목별 현재 성적 — Canvas enrollment 의 grades.
+
+    ⚠️ SSU 는 current_score 를 백분율(예: 61.65)로 주고, letter grade(A0/B+ 등)는
+    보통 미게시(null). 그래서 점수(%) 가 주 신호다.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    course_id: int
+    course_name: str = ""
+    current_score: float | None = None   # 현재 백분율 점수
+    current_grade: str | None = None      # 현재 letter grade (보통 null)
+    final_score: float | None = None
+    final_grade: str | None = None
+
+
+# ──────────────────────────────────────────
 # 동기화 결과 (SyncResult)
 # ──────────────────────────────────────────
 class SyncResult(BaseModel):
