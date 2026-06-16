@@ -98,6 +98,13 @@ async def list_courses(client: CanvasClient) -> list[Course]:
 
     items = raw if isinstance(raw, list) else raw.get("courses", raw.get("data", []))
 
+    # 출석율 캐시(perform_sync 가 출결현황에서 계산해 둔 값)를 한 번만 읽는다.
+    # SSU 의 'progress' 는 출석율로 표시한다(출석 일수/전체 일수). 캐시가 있으면 그 값을
+    # 우선 쓰고, 없으면(최초 동기화 전 등) 기존 Canvas 진도 로직으로 폴백한다.
+    # (지연 import — 서비스 계층 순환 의존 회피, cached 읽기는 네트워크 0)
+    from app.services.attendance_service import load_cache as _load_attendance
+    attendance_cache = _load_attendance()
+
     sem = asyncio.Semaphore(_COURSE_CONCURRENCY)
 
     async def _build_course(item: dict) -> Course:
@@ -112,14 +119,18 @@ async def list_courses(client: CanvasClient) -> list[Course]:
                 _get_progress_and_materials(client, course_id),
             )
 
-        # 진도율은 course_progress 가 있으면 우선 사용, 없으면 modules 기반 값
-        cp = item.get("course_progress", {})
-        if cp and cp.get("requirement_count"):
-            completed = cp.get("requirement_completed_count", 0)
-            total = cp.get("requirement_count", 1)
-            progress = round(completed / total * 100, 1)
+        # 진도율(=출석율) 우선순위: 출결현황 출석율 캐시 > Canvas course_progress > 모듈 진도.
+        att = attendance_cache.get(str(course_id))
+        if isinstance(att, dict) and att.get("rate") is not None:
+            progress = att["rate"]
         else:
-            progress = module_progress
+            cp = item.get("course_progress", {})
+            if cp and cp.get("requirement_count"):
+                completed = cp.get("requirement_completed_count", 0)
+                total = cp.get("requirement_count", 1)
+                progress = round(completed / total * 100, 1)
+            else:
+                progress = module_progress
 
         return Course(
             id=course_id,

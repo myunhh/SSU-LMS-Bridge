@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     # ── 동기화 설정 ─────────────────────────────────────────────
     sync_interval_hours: int = 24
     sync_hour: int = 4
+    # 동기화 시 강의자료 '원본 파일'(PPT/PDF/문서 등)을 commons 에서 받아 Obsidian 에
+    # 저장할지 여부. True 면 perform_sync 가 services/material_service.py 를 호출한다.
+    # ⚠️ 원본 파일 위치(content_id)를 알아내려면 강의자료 LTI 를 1회 런치해야 하고,
+    #    그 과정에서 '출결/진도'가 기록될 수 있다. 그래서 항목별 content_id 를
+    #    매니페스트에 캐시해 **항목당 평생 1번만** 런치하고, 이후 동기화는 신규 자료만
+    #    처리한다(이미 Obsidian 에 있는 파일은 런치 없이 건너뜀). Obsidian 미설정이면
+    #    download_files=True 라도 동작하지 않는다(저장할 곳이 없으므로).
+    download_files: bool = True
 
     # ── 채팅 입력 상한 (#8) ──────────────────────────────────────
     # WS/POST /api/chat 진입부에서 검사. 무제한 입력은 토큰 비용·메모리·DoS

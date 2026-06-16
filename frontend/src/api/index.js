@@ -305,6 +305,22 @@ export async function fetchConnectorsStatus() {
 }
 
 /**
+ * GET /api/mcp/status — in-process MCP 서버 4종(lms/study/notion/obsidian) 현재 상태.
+ * 각 항목: { id, name, status:'connected'|'disconnected', meta, tools,
+ *           toolList:[{name, description}], url }
+ * 절대 throw 하지 않는다 (실패 시 null → 페이지는 '확인 중'/빈 상태 유지).
+ */
+export async function fetchMcpStatus() {
+  if (USE_MOCK) return null;
+  try {
+    const data = await request('/api/mcp/status');
+    return Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * POST /api/connectors/config — 가입 마법사가 입력한 키를 백엔드 .env 에 저장.
  * payload 예: { notion_token, notion_root_page_id, obsidian_mcp_auth_code,
  *               obsidian_vault_path, obsidian_base_url, llm_api_key, llm_model }

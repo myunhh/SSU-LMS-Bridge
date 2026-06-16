@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from httpx import HTTPStatusError
 
-from app.api.routes import assignments, chat, connectors, courses, lms, notices, sync
+from app.api.routes import assignments, chat, connectors, courses, lms, mcp, notices, sync
 from app.api.session_meta import SESSION_REFRESH_INTERVAL
 from app.config import settings
 from app.logger import setup_logging
@@ -138,6 +138,7 @@ app.include_router(courses.router, prefix="/api", tags=["courses"])
 app.include_router(notices.router, prefix="/api", tags=["notices"])
 app.include_router(assignments.router, prefix="/api", tags=["assignments"])
 app.include_router(connectors.router, prefix="/api", tags=["connectors"])
+app.include_router(mcp.router, prefix="/api", tags=["mcp"])
 
 
 # ── 헬스 체크 / 루트 ──────────────────────────────────────────

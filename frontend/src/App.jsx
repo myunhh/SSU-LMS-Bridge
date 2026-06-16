@@ -5,6 +5,7 @@ import { Dashboard } from './pages/dashboard';
 import { CourseDetail } from './pages/course-detail';
 import { ChatView } from './pages/chat';
 import { ConnectorsView } from './pages/connectors';
+import { McpView } from './pages/mcp';
 import { CalendarView } from './pages/calendar';
 import { SettingsView } from './pages/settings';
 import LandingPage from './pages/landing';
@@ -253,6 +254,7 @@ function AppRoutes() {
         <Route path="/course/:id" element={<CourseDetailRoute />} />
         <Route path="/chat" element={<ChatView />} />
         <Route path="/connectors" element={<ConnectorsView />} />
+        <Route path="/mcp" element={<McpView />} />
         <Route path="/calendar" element={<CalendarView />} />
         <Route path="/settings" element={<SettingsView />} />
       </Route>

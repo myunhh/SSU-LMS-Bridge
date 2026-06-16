@@ -116,7 +116,7 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
     return diff >= 0 && diff <= weekMs;
   }).length;
 
-  // 전체 강의 평균 진행률
+  // 전체 강의 평균 출석율 (각 과목 progress = 출결현황 출석율)
   const avgProgress = COURSES.length
     ? Math.round((COURSES.reduce((s,c) => s + c.progress, 0) / COURSES.length) * 100)
     : 0;
@@ -158,7 +158,7 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
           <div className="hidden md:grid grid-cols-3 gap-3 w-[420px]">
             <Stat label="이번 주 마감" value={String(dueThisWeek)} hint="다가오는 과제" />
             <Stat label="안 읽은 공지" value={String(noticesUnread)} hint="LMS 신규" />
-            <Stat label="진행률" value={`${avgProgress}%`} hint={`${SEMESTER.weekCurrent}/${SEMESTER.weekTotal}주차`} />
+            <Stat label="평균 출석율" value={`${avgProgress}%`} hint="출결현황 기준" />
           </div>
         </div>
       </div>
@@ -337,7 +337,7 @@ function Dashboard({ openCourse, openChat, openCalendar }) {
               <div className="text-[11.5px] text-zinc-500 mt-0.5">{c.professor} · {c.credits}학점 · {c.code}</div>
               <div className="mt-4">
                 <div className="flex items-center justify-between text-[11px] mono text-zinc-500 mb-1.5">
-                  <span>주차 {c.weekCurrent}/{c.weekTotal}</span>
+                  <span>출석율</span>
                   <span>{Math.round(c.progress*100)}%</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-zinc-100 overflow-hidden">

@@ -6,7 +6,8 @@ import { NAV_ITEMS, APP_BRAND } from '../data/uiConfig';
 
 /* ---------- Sidebar ---------- */
 function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) {
-  const { courses: COURSES, assignments, connectors, connectorsLoaded, lmsSession, now } = useData();
+  const { courses: COURSES, assignments, connectors, connectorsLoaded, lmsSession, now,
+          mcpServers, mcpLoaded } = useData();
 
   // NAV badge 동적 계산: 캘린더=이번주 마감 수, 커넥터=연결됨/전체
   const weekMs = 7 * 86400000;
@@ -19,10 +20,13 @@ function Sidebar({ route, setRoute, currentCourse, setCourse, user, onLogout }) 
   const connActive = connectors.filter(c =>
     c.id === 'lms' ? !!lmsSession?.active : c.status === 'connected'
   ).length;
+  const mcpActive = (mcpServers || []).filter(m => m.status === 'connected').length;
+  const mcpTotal = (mcpServers || []).length || 4;
   const badgeFor = (id) =>
     id === 'calendar' ? (dueThisWeek > 0 ? String(dueThisWeek) : null)
     // 커넥터 상태 응답 도착 전에는 확정 카운트 대신 '…' (lms 는 lmsSession 으로 보정됨)
     : id === 'connectors' ? (connectorsLoaded ? `${connActive}/${connTotal}` : '…')
+    : id === 'mcp' ? (mcpLoaded ? `${mcpActive}/${mcpTotal}` : '…')
     : null;
 
   // ── 검색 (과목/공지/과제 클라이언트 필터) ──────────────────

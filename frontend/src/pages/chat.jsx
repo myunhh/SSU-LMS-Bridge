@@ -13,6 +13,7 @@ function ChatView() {
     activeConversationId, activeMessages,
     startNewConversation, selectConversation, saveActiveMessages, deleteConversation,
     connectors,
+    pendingChatPrompt, clearPendingChatPrompt,
   } = useData();
 
   // 푸터 모델 라벨 — connectors 의 llm 항목 meta('provider · model')에서 모델명만 표시.
@@ -122,6 +123,26 @@ function ChatView() {
       onDone: () => { persist(acc || '(응답이 비어 있습니다)'); setStreaming(false); closeRef.current = null; },
     });
   };
+
+  // 항상 최신 send 참조 — 아래 자동 전송 effect 가 stale closure 를 쓰지 않도록.
+  const sendRef = chR(send);
+  sendRef.current = send;
+
+  // 다른 페이지(MCP '실행' 버튼)가 예약한 프롬프트를 자동 전송한다.
+  // setTimeout(0) 으로 활성 대화 복원 effect 이후로 미뤄 안전하게 전송한다.
+  // ⚠️ clear 는 반드시 전송 '후'(timeout 콜백 안)에 한다 — 전송 전에 clear 하면
+  //    pendingChatPrompt 변경 → 리렌더 → 이 effect 의 cleanup 이 timeout 을 취소해
+  //    전송이 영영 안 된다(StrictMode 면 더 확실히 취소됨).
+  chE(() => {
+    if (!pendingChatPrompt) return;
+    const prompt = pendingChatPrompt;
+    const id = setTimeout(() => {
+      sendRef.current?.(prompt);
+      clearPendingChatPrompt();
+    }, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingChatPrompt]);
 
   return (
     <div className="flex h-[calc(100vh-58px)]">

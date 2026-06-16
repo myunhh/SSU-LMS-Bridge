@@ -27,6 +27,8 @@ from app.config import is_configured, settings
 from app.logger import logger
 from app.models import SyncResult, submission_type_label
 from app.services import notify_service
+from app.services.attendance_service import compute_and_cache as compute_attendance
+from app.services.material_service import download_material_files
 from app.services.notion_services import sync_notion
 from app.services.vault_service import sync_obsidian
 
@@ -111,6 +113,17 @@ async def perform_sync() -> SyncResult:
                 materials = await list_all_materials(client, course_ids)
             except Exception as e:
                 errors.append(f"materials: {e}")
+
+        # 2.5) 출석율(출결현황) 계산 → 캐시. 대시보드의 '출석율'(=진도율 자리)이 이 값을 읽는다.
+        # 과목당 출결현황 LTI 를 1회 런치(보기 전용, 출석 새로 안 찍힘)해 lessons/attendances
+        # 를 가로채 출석 일수/전체 일수를 캐시한다. Playwright 가 무거우므로 sync 에서만 돌리고,
+        # 실패는 errors 로 수거하되 sync 를 깨지 않는다(기존 캐시 유지).
+        try:
+            rates = await compute_attendance(course_ids, str(path))
+            logger.info(f"[Sync] 출석율 — {len(rates)}개 과목 갱신")
+        except Exception as e:
+            logger.exception("[Sync] 출석율 계산 실패")
+            errors.append(f"출석율: {e}")
 
         # push payload 조립 — Notion·Obsidian 두 push 가 공유한다.
         # (sync_notion / sync_obsidian 은 각자 자기 키만 읽으므로 추가 키는 무해)
@@ -204,6 +217,33 @@ async def perform_sync() -> SyncResult:
                 errors.append(f"obsidian: {e}")
         else:
             logger.info("[Sync] Obsidian 미설정 → push 건너뜀")
+
+        # 4.5) 강의자료 '원본 파일'(PPT/PDF/문서) 다운로드 → Obsidian 저장.
+        # download_files=True + Obsidian 설정일 때만. 항목별 content_id 를 매니페스트에
+        # 캐시해 **항목당 평생 1번만** LTI 런치(출석 보호)하고, 이미 받은 파일/영상/외부
+        # 링크는 런치 없이 건너뛴다. 실패는 errors 로 수거(예외 전파 안 함).
+        if settings.download_files and is_configured(settings.obsidian_mcp_auth_code):
+            try:
+                files = await download_material_files(
+                    materials,
+                    name_map,
+                    str(path),
+                    settings.obsidian_mcp_url,
+                    settings.obsidian_mcp_auth_code,
+                )
+                if files.get("failed"):
+                    errors.append(f"강의자료 파일: {files['failed']}건 다운로드 실패")
+                logger.info(
+                    f"[Sync] 강의자료 파일 — 신규 {files.get('saved')} · 기존 {files.get('exists')} · "
+                    f"영상 {files.get('video')} · 외부 {files.get('external')} · "
+                    f"대용량 {files.get('big')} · 실패 {files.get('failed', 0)}"
+                )
+            except Exception as e:
+                # Playwright/네트워크 인프라 오류라도 sync 전체를 깨지 않는다.
+                logger.exception("[Sync] 강의자료 파일 다운로드 실패")
+                errors.append(f"강의자료 파일: {e}")
+        elif settings.download_files:
+            logger.info("[Sync] Obsidian 미설정 → 강의자료 파일 다운로드 건너뜀")
 
         # 5) 이메일 알림 (설정된 경우에만, #9)
         # 방금 수집한 과제/공지로 마감 임박분만 발송한다 — 추가 네트워크 호출 0회.

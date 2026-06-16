@@ -33,6 +33,7 @@ export const NAV_ITEMS = [
   { id: 'calendar',   label: '캘린더',     iconName: 'Calendar' },
   { id: 'chat',       label: '학습 비서',  iconName: 'Sparkles' },
   { id: 'connectors', label: '커넥터',     iconName: 'Plug' },
+  { id: 'mcp',        label: 'MCP',        iconName: 'Code' },
 ];
 
 // ── 페이지별 Topbar 타이틀 ───────────────────────────────────────────────────
@@ -42,6 +43,7 @@ export const PAGE_TITLES = {
   calendar:   { t: '캘린더',       s: '과제 마감 · 공지' },
   chat:       { t: '학습 비서',    s: 'LMS 공지·과제·마감 실시간 조회' },
   connectors: { t: '커넥터',       s: 'LMS · Notion · Obsidian · LLM' },
+  mcp:        { t: 'MCP 서버',     s: 'in-process MCP 4종 · 도구 목록·설명' },
   settings:   { t: '설정',         s: '계정 · 알림 · 동기화 · 외관' },
 };
 

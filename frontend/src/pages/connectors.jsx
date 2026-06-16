@@ -300,7 +300,7 @@ function ConnectorsView() {
                 label="마지막 동기화"
                 sub={lastSyncAt ? lastSyncAt.toLocaleString('ko-KR') : '아직 실행되지 않음'}
               />
-              <ScheduleRow label="파일 다운로드" sub="강의 교안은 LTI 뷰어 뒤라 범위 밖" badge="준비 중" dim/>
+              <ScheduleRow label="강의자료 파일 다운로드" sub="PPT/PDF 원본을 Obsidian 에 저장 (DOWNLOAD_FILES)" badge="활성" tone="ok"/>
               <ScheduleRow label="마감 24시간 전 알림" sub="알림 발송 백엔드 미구현" badge="준비 중" dim/>
               <ScheduleRow label="새 공지 즉시 푸시" sub="알림 발송 백엔드 미구현" badge="준비 중" dim/>
             </div>

@@ -214,9 +214,15 @@ export function DataProvider({ children, onToast, authUser }) {
   // 채팅 대화는 학번 스코프 localStorage 에 영속화 — 새로고침/재방문 후 복원.
   // chatStore = { conversations: [{ id, title, sub, updatedAt, messages }], activeId }
   const [chatStore, setChatStore] = useState(() => _readChats());
+  // 다른 페이지(예: MCP)에서 '학습 비서로 실행' 시 예약하는 프롬프트.
+  // chat.jsx 가 마운트/감지 시 자동 전송하고 즉시 비운다 (1회성).
+  const [pendingChatPrompt, setPendingChatPrompt] = useState(null);
   const [connectors,    setConnectors]    = useState(seed.CONNECTORS);
   // 커넥터 상태 응답 도착 여부 — '확인 중' 표시용 (실패(null)여도 true)
   const [connectorsLoaded, setConnectorsLoaded] = useState(false);
+  // in-process MCP 서버 상태 (lms/study/notion/obsidian) — connectors 페이지 표시용
+  const [mcpServers, setMcpServers] = useState([]);
+  const [mcpLoaded, setMcpLoaded] = useState(false);
 
   // 데이터 로딩 상태 — 초기 fetch / refetch 중일 때 true
   const [loading, setLoading] = useState(false);
@@ -261,6 +267,11 @@ export function DataProvider({ children, onToast, authUser }) {
     Api.fetchConnectorsStatus().then(list => {
       setConnectorsLoaded(true);
       _mergeConnectors(list);
+    });
+    // in-process MCP 서버 상태 — 실패(null)면 빈 목록 유지(throw 안 함).
+    Api.fetchMcpStatus().then(list => {
+      setMcpLoaded(true);
+      if (list) setMcpServers(list);
     });
   }, [_mergeConnectors]);
 
@@ -572,6 +583,13 @@ export function DataProvider({ children, onToast, authUser }) {
     setChatStore(s => (s.activeId === id ? s : { ...s, activeId: id }));
   }, []);
 
+  // '학습 비서로 실행' — MCP 페이지 버튼이 호출. 프롬프트를 예약하고 /chat 으로 이동하면
+  // chat.jsx 의 effect 가 이를 자동 전송한다(해당 MCP 도구 호출 → 결과 응답). 1회성.
+  const askAssistant = useCallback((text) => {
+    if (text && text.trim()) setPendingChatPrompt(text.trim());
+  }, []);
+  const clearPendingChatPrompt = useCallback(() => setPendingChatPrompt(null), []);
+
   // 현재 활성 대화에 메시지 목록을 저장(덮어쓰기). 활성 대화가 없으면 새로 만든다.
   // chat.jsx 가 스트리밍 도중/완료 시 호출 — 빈 배열이면 저장하지 않는다.
   const saveActiveMessages = useCallback((messages) => {
@@ -610,8 +628,14 @@ export function DataProvider({ children, onToast, authUser }) {
   // ──────────────────────────────────────────────────────────────────────────
   // (예전 toggleConnector mock 제거 — status 는 백엔드 실상태로만 결정된다)
   const reloadConnectors = useCallback(async () => {
-    const list = await Api.fetchConnectorsStatus();   // 절대 reject 안 함 (null 반환)
+    // 커넥터 + MCP 서버 상태를 함께 재조회 (둘 다 절대 reject 안 함 — null 반환).
+    const [list, mcp] = await Promise.all([
+      Api.fetchConnectorsStatus(),
+      Api.fetchMcpStatus(),
+    ]);
     setConnectorsLoaded(true);
+    setMcpLoaded(true);
+    if (mcp) setMcpServers(mcp);
     if (!list) {
       onToast?.({ kind: 'error', text: '백엔드에 연결할 수 없어 커넥터 상태를 갱신하지 못했습니다.' });
       return false;
@@ -743,8 +767,12 @@ export function DataProvider({ children, onToast, authUser }) {
     // 동적 데이터 (courses 는 unread/dueSoon 보강본)
     courses: coursesEnriched, assignments, notices, notifications, activity,
     connectors, connectorsLoaded,
+    // in-process MCP 서버 상태 (커넥터 페이지 'MCP 서버' 카드)
+    mcpServers, mcpLoaded,
     // 채팅 대화 (영속화 — ssu_chats:{studentId})
     conversations, activeConversationId, activeMessages,
+    // 다른 페이지 → 학습 비서 자동 질문 (MCP 페이지 '실행' 버튼)
+    pendingChatPrompt, askAssistant, clearPendingChatPrompt,
     // 로딩 / 동기화 상태
     loading, firstFetchDone, syncing, lastSyncAt, syncHour,
     // LMS 세션 상태 + 액션 (lmsConnected = 페이지 빈 상태 게이트 기준, #4)
