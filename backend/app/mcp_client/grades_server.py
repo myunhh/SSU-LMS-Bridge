@@ -113,7 +113,7 @@ def create_grades_mcp_server(session_file: str) -> Server:
                 name="summary",
                 description=(
                     "전 과목 성적 요약 — 과목수·평균 점수·최고/최저 과목·대략적 GPA 추정. "
-                    "gpa_estimate 는 절대평가 가정 추정치(상대평가와 다를 수 있음). "
+                    "gpa_estimate 는 숭실대학교 점수 산정 기준 가정 추정치. "
                     "'평점이 어떻게 돼?' 같은 질문에 이걸 호출해 요약하라."
                 ),
                 inputSchema={"type": "object", "properties": {}},
